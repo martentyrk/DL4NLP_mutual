@@ -9,6 +9,7 @@ Original file is located at
 
 import argparse
 import logging
+from dataset import processors
 import json
 import os
 import random
@@ -20,11 +21,14 @@ from tqdm import tqdm
 import torch.optim as optim
 import torch.utils.data as data
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoModel, AutoTokenizer
-from transformers import BertTokenizer, BertModel
+from transformers import AutoTokenizer
+from transformers import BertConfig, BertForMultipleChoice
+from dataset import load_and_cache_examples
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
+def simple_accuracy(preds, labels):
+    return (preds == labels).mean()
 
 def load_model(model_name, num_classes, freeze_lm=True):
     """
@@ -36,119 +40,104 @@ def load_model(model_name, num_classes, freeze_lm=True):
         freeze_lm: boolean parameter indicating if to freeze weights of pretrained model
     """
     ## Load pretrained model
-    model = BertModel.from_pretrained("bert-base-uncased")
+    model_config = BertConfig.from_pretrained(model_name, num_labels=num_classes)
+    model = BertForMultipleChoice.from_pretrained(model_name,config=model_config)
 
     ## freeze all weights in LM to reduce computational complex
     if freeze_lm:
         for name, param in model.named_parameters():
-            param.requires_grad = False
+            if name != 'classifier':
+                param.requires_grad = False
 
     ## Define a classifier layer and add it to the LM
-    output_dimension = model.config.hidden_size
-    linear_layer = nn.Linear(output_dimension, num_classes)
-    nn.init.normal_(linear_layer.weight, 0, 0.01)
-    
-    model = nn.Sequential(model, linear_layer)
 
     return model
 
-def create_dataset(data_path, model_name):
-    """
-    This function creates dataset for dataloader
-    Inputs:
-        data_path: path to dataset
-        model_name - name of the pretrained model
-    """
-    ## Load tokenizer of chosen model
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-
-    ## Load data
-    with open(data_path, "r") as file:
-      data = file.read()
-    
-    data = json.loads(data)
-    ## Get diagolue, choices, and answers
-    contexts = [sample['article'] for sample in [data]]
-    choices = [sample['options'] for sample in [data]]
-    map_to_int = {'A': 0, 'B': 1, 'C': 2, 'D': 3}
-    labels = [map_to_int[sample['answers']] for sample in [data]]
-    ## Create data by concatenating context with each choice
-    X = [tokenizer([context]*4,
-                   choice,
-                   return_tensors="pt",
-                   padding=True) for context, choice in zip(contexts, choices)]
-    y = [torch.tensor(label).unsqueeze(0) for label in labels]
-    return X,y
-
-
-class MultuDataset(Dataset):
-    """
-    Custom dataset class
-    """
-    def __init__(self, data, labels):
-        self.data = data
-        self.labels = labels
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        return self.data[idx], self.labels[idx]
-
-class Multu_Module(pl.LightningModule):
+class Mutual_Module(pl.LightningModule):
     """
     Torch lightning training pipeline
     """
     def __init__(self, args):
-          """
+        """
           Inputs:
               args - user defined arguments
-          """
-          super().__init__()
-          self.model = load_model(args.model_name,
-                                  args.num_classes,
-                                  args.freeze_lm)
-          self.loss_module = nn.CrossEntropyLoss()
-          self.optimizer_name = args.optimizer
+        """
+        super().__init__()
+        processor = processors[args.task_name]()
+        label_list = processor.get_labels()
+        num_labels = len(label_list)
+        self.model = load_model(args.model_name,
+                                num_labels,
+                                args.freeze_lm)
+        self.loss_module = nn.CrossEntropyLoss()
+
 
     def forward(self, instance):
-        return self.model(instance)
+        return self.model(torch.Tensor(instance))
 
 
     #TODO: Add hparameter for learning rate
     def configure_optimizers(self):
-        if self.optimizer_name == "Adam":
-            optimizer = optim.AdamW(
-                self.parameters(), 1e-3)
-        elif self.optimizer_name == "SGD":
-            optimizer = optim.SGD(self.parameters(), 1e-3)
-        else:
-            assert False, f"Unknown optimizer: \"{self.optimizer_name}\""
-            
-            
+        optimizer = optim.AdamW(self.parameters(), 1e-3)    
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=1e-3, total_steps=10)
         return [optimizer], [scheduler]
         
 
     def training_step(self, batch, batch_idx):
-        sequence, labels = batch
-        preds = self.model(sequence)
-        loss = self.loss_module(preds, labels)
-        acc = (preds.argmax(dim=-1) == labels.argmax(dim=-1)).float().mean()
+        hold_batch = tuple(t.to('cpu') for t in batch)
+        
+        inputs = {'input_ids': hold_batch[0],
+                    'attention_mask': hold_batch[1],
+                    'token_type_ids': hold_batch[2],
+                    'labels': hold_batch[3]}
+            
+        outputs = self.model(batch)
+        loss, logits = outputs[:2]
+        
+        preds = logits.detach().cpu().numpy()
+        preds_pos_1 = np.argmax(preds, axis=1)
+        out_label_ids = inputs['labels'].detach().cpu().numpy()
+        acc = simple_accuracy(preds_pos_1, out_label_ids)
+        
+        loss = self.loss_module(preds, out_label_ids)
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        sequence, labels = batch
-        preds = self.model(sequence).argmax(dim=-1)
-        acc = (preds.argmax(dim=-1) == labels.argmax(dim=-1)).float().mean()
+        hold_batch = tuple(t.to('cpu') for t in batch)
+        
+        with torch.no_grad():
+            inputs = {'input_ids': hold_batch[0],
+                        'attention_mask': hold_batch[1],
+                        'token_type_ids': hold_batch[2],
+                        'labels': hold_batch[3]}
+            outputs = self.model(batch)
+            _, logits = outputs[:2]
+
+        
+        preds = logits.detach().cpu().numpy()
+        preds_pos_1 = np.argmax(preds, axis=1)
+        out_label_ids = inputs['labels'].detach().cpu().numpy()
+        acc = simple_accuracy(preds_pos_1, out_label_ids)
         self.log('val_acc', acc)
 
     def test_step(self, batch, batch_idx):
-        sequence, labels = batch
-        preds = self.model(sequence).argmax(dim=-1)
-        acc = (preds.argmax(dim=-1) == labels.argmax(dim=-1)).float().mean()
+        batch = tuple(t.to(self.device) for t in batch)
+        
+        with torch.no_grad():
+            inputs = {'input_ids': batch[0],
+                        'attention_mask': batch[1],
+                        'token_type_ids': batch[2],
+                        'labels': batch[3]}
+            outputs = self.model(**inputs)
+            _, logits = outputs[:2]
+
+        
+        preds = logits.detach().cpu().numpy()
+        preds_pos_1 = np.argmax(preds, axis=1)
+        out_label_ids = inputs['labels'].detach().cpu().numpy()
+        acc = simple_accuracy(preds_pos_1, out_label_ids)
         self.log('test_acc', acc)
 
 def fine_tune(args):
@@ -158,17 +147,14 @@ def fine_tune(args):
         args - user defined arguments
     """
     # Create dataset
-    train_X, train_y = create_dataset(args.train_data_path, args.model_name)
-    val_X, val_y = create_dataset(args.val_data_path, args.model_name)
-    test_X, test_y = create_dataset(args.test_data_path, args.model_name)
-    train_dataset = MultuDataset(train_X, train_y)
-    val_dataset = MultuDataset(val_X, val_y)
-    test_dataset = MultuDataset(test_X, test_y)
-
-    # Create dataloader
-    train_loader = data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, pin_memory=True, num_workers=args.num_workers)
-    val_loader = data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False, num_workers=args.num_workers)
-    test_loader = data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False, num_workers=args.num_workers)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    
+    train_dataset, val_dataset = load_and_cache_examples(args, args.task_name, tokenizer)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size)    
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
+    
+    test_dataset, _ = load_and_cache_examples(args, args.task_name, tokenizer, evaluate=True)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size)
 
     # Create a PyTorch Lightning trainer with the generation callback
     trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name + "_model"),
@@ -184,12 +170,12 @@ def fine_tune(args):
     pretrained_filename = os.path.join(args.checkpoint_path, "_" + args.model_name + ".ckpt")
     if os.path.isfile(pretrained_filename):
         print(f"Found pretrained model at {pretrained_filename}, loading...")
-        model = Multu_Module.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
+        model = Mutual_Module.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
     else:
-        pl.seed_everything(42) # To be reproducable
-        model = Multu_Module(args)
+        pl.seed_everything(args.seed) # To be reproducable
+        model = Mutual_Module(args)
         trainer.fit(model, train_loader, val_loader)
-        model = Multu_Module.load_from_checkpoint(trainer.checkpoint_callback.best_model_path) # Load best checkpoint after training
+        model = Mutual_Module.load_from_checkpoint(trainer.checkpoint_callback.best_model_path) # Load best checkpoint after training
 
     # Test best model on validation and test set
     val_result = trainer.test(model, val_loader, verbose=False)
@@ -197,47 +183,3 @@ def fine_tune(args):
     result = {"test": test_result[0]["test_acc"], "val": val_result[0]["test_acc"]}
 
     return model, result
-
-def parseArgs():
-    """
-    Function to parse user input argument
-    """
-    parser = argparse.ArgumentParser()
-
-    ## Required parameters
-    parser.add_argument("--model_name", default='bert-base-uncased', type=str, required=False,
-                        help="name of pre-trained-language model")
-    parser.add_argument("--num_classes", default=4, type=int, required=False,
-                        help="number of classes")
-    parser.add_argument("--train_data_path", default='/Users/marten/UvA labs/DL4NLP_mutual/data/mutual/train/train_1.txt', type=str, required=False,
-                        help="path of training data")
-    parser.add_argument("--val_data_path", default='/Users/marten/UvA labs/DL4NLP_mutual/data/mutual/dev/dev_1.txt', type=str, required=False,
-                        help="path of validation data")
-    parser.add_argument("--test_data_path", default='/Users/marten/UvA labs/DL4NLP_mutual/data/mutual/dev/dev_2.txt', type=str, required=False,
-                        help="path of test data")
-    parser.add_argument("--batch_size", default=8, type=int,
-                        help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--num_workers", default=4, type=int,
-                        help="number of cpus/gpus to run on parallel")
-    parser.add_argument("--checkpoint_path", default='', type=str, required=False,
-                        help="path to store checkpoints")
-    parser.add_argument("--max_epochs", default=1, type=int, required=False,
-                        help="Maximum number of epochs, most likely the number of epochs")
-    parser.add_argument("--device", default='cpu', type=str, required=False,
-                        help="Device you want to train on")
-    parser.add_argument("--freeze_lm", default=True, type=bool, required=False,
-                        help="If we want to freeze all layers of the model or not")
-    parser.add_argument("--optimizer", default='Adam', type=str, required=False,
-                        help="Name of the optimizer, Adam, SGD")
-
-    args = parser.parse_args()
-    return args
-
-def main():
-  args = parseArgs()
-  print(args)
-  model, result = fine_tune(args)
-
-if __name__ == "__main__":
-    main()
-
