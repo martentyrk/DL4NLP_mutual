@@ -24,7 +24,7 @@ from transformers import AutoTokenizer, BertForMultipleChoice
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
-def load_model(model_name, freeze_lm=True):
+def load_model(model_name):
     """
     This function loads the a pretrained model and add a classifier layer on top
     Inputs:
@@ -40,10 +40,9 @@ def load_model(model_name, freeze_lm=True):
       pass
 
     ## freeze all weights in LM except last layer
-    if freeze_lm:
-        for name, param in model.named_parameters():
-          if name != 'classifier':
-            param.requires_grad = False
+    for name, param in model.named_parameters():
+      if name != 'classifier':
+        param.requires_grad = False
 
     return model
 
@@ -101,17 +100,15 @@ class Multu_Module(pl.LightningModule):
     """
     Torch lightning training pipeline
     """
-    def __init__(self, args):
+    def __init__(self, model_name, optimizer_name):
           """
           Inputs:
               args - user defined arguments
           """
           super().__init__()
-          self.model = load_model(args.model_name,
-                                  args.freeze_lm)
+          self.model = load_model(model_name)
           self.loss_module = nn.CrossEntropyLoss()
-          self.optimizer_name = args.optimizer
-          self.optim_hparams = args.optim_hparams
+          self.optimizer_name = optimizer_name
 
     def forward(self, instance):
         return self.model(instance)
@@ -119,9 +116,9 @@ class Multu_Module(pl.LightningModule):
     def configure_optimizers(self):
         if self.optimizer_name == "Adam":
             optimizer = optim.AdamW(
-                self.parameters(), **self.optim_hparams)
+                self.parameters())
         elif self.optimizer_name == "SGD":
-            optimizer = optim.SGD(self.parameters(), **self.optim_hparams)
+            optimizer = optim.SGD(self.parameters())
         else:
             assert False, f"Unknown optimizer: \"{self.optimizer_name}\""
 
@@ -129,7 +126,7 @@ class Multu_Module(pl.LightningModule):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
         preds = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
         loss = preds.loss
-        acc = (preds.argmax(dim=-1) == labels).float().mean()
+        acc = (np.argmax(preds) == labels).float().mean()
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
         return loss
@@ -137,13 +134,13 @@ class Multu_Module(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
         preds = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
-        acc = (preds.argmax(dim=-1) == labels).float().mean()
+        acc = (np.argmax(preds) == labels).float().mean()
         self.log('val_acc', acc)
 
     def test_step(self, batch, batch_idx):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
         preds = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
-        acc = (preds.argmax(dim=-1) == labels).float().mean()
+        acc = (np.argmax(preds) == labels).float().mean()
         self.log('test_acc', acc)
 
     def unpack_batch(self, batch):
@@ -160,9 +157,12 @@ def fine_tune(args):
         args - user defined arguments
     """
     # Create dataset
-    train_dataset = MultuDataset(create_dataset(args.train_data_path, args.max_length))
-    val_dataset = MultuDataset(create_dataset(args.val_data_path, args.max_length))
-    test_dataset = MultuDataset(create_dataset(args.test_data_path, args.max_length))
+    train_X, train_y = create_dataset(args.train_data_path, args.max_length)
+    train_dataset = MultuDataset(train_X, train_y)
+    val_X, val_y = create_dataset(args.train_data_path, args.max_length)
+    val_dataset = MultuDataset(val_X, val_y)
+    test_X, test_y = create_dataset(args.train_data_path, args.max_length)
+    test_dataset = MultuDataset(test_X, test_y)
 
     # Create dataloader
     train_loader = data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, pin_memory=True, num_workers=args.num_workers)
@@ -174,21 +174,19 @@ def fine_tune(args):
                          accelerator="gpu" if str(args.device).startswith("cuda") else "cpu",
                          devices=1,
                          max_epochs=args.max_epochs,
-                         callbacks=[ModelCheckpoint(save_weights_only=True, mode="max", monitor="val_acc"),
-                                    LearningRateMonitor("epoch")],
                          enable_progress_bar=True)
     trainer.logger._log_graph = True         # If True, we plot the computation graph in tensorboard
-
-    # Check whether pretrained model exists. If yes, load it and skip training
-    pretrained_filename = os.path.join(args.checkpoint_path, args.model_name + ".ckpt")
-    if os.path.isfile(pretrained_filename):
-        print(f"Found pretrained model at {pretrained_filename}, loading...")
-        model = Multu_Module.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
-    else:
-        pl.seed_everything(42) # To be reproducable
-        model = Multu_Module(args)
-        trainer.fit(model, train_loader, val_loader)
-        model = Multu_Module.load_from_checkpoint(trainer.checkpoint_callback.best_model_path) # Load best checkpoint after training
+    model = Multu_Module(args.model_name, args.optimizer_name)
+    # # Check whether pretrained model exists. If yes, load it and skip training
+    # pretrained_filename = os.path.join(args.checkpoint_path, args.model_name + ".ckpt")
+    # if os.path.isfile(pretrained_filename):
+    #     print(f"Found pretrained model at {pretrained_filename}, loading...")
+    #     model = Multu_Module.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
+    # else:
+    #     pl.seed_everything(42) # To be reproducable
+    #     model = Multu_Module(args)
+    #     trainer.fit(model, train_loader, val_loader)
+    #     model = Multu_Module.load_from_checkpoint(trainer.checkpoint_callback.best_model_path) # Load best checkpoint after training
 
     # Test best model on validation and test set
     val_result = trainer.test(model, val_loader, verbose=False)
@@ -216,18 +214,16 @@ def parseArgs():
                         help="path of test data")
     parser.add_argument("--max_length", default=512, type=int, required=True,
                         help="Maximum length of input sequence")
-    parser.add_argument("--batch_size", default=8, type=int,
+    parser.add_argument("--batch_size", default=8, type=int, required=True,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--num_workers", default=4, type=int,
-                        help="number of cpus/gpus to run on parallel")
     parser.add_argument("--checkpoint_path", default=None, type=str, required=True,
                         help="path to store checkpoints")
     parser.add_argument("--max_epochs", default=10, type=int, required=False,
                         help="Maximum number of epochs, most likely the number of epochs")
-    parser.add_argument("--max_length", default=512, type=int, required=False,
-                        help="Maximum number of epochs, most likely the number of epochs")
     parser.add_argument("--device", default='cpu', type=str, required=False,
                         help="cpu or cuda for training")
+    parser.add_argument("--num_workers", default=4, type=int, required=False,
+                        help="number of cpus/gpus to run on parallel")
 
     args = parser.parse_args()
     return args
