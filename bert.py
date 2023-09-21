@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer, BertForMultipleChoice
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def load_model(model_name):
     """
@@ -41,7 +42,7 @@ def load_model(model_name):
 
     ## freeze all weights in LM except last layer
     for name, param in model.named_parameters():
-      if name != 'classifier':
+      if name.startswith('classifier'):
         param.requires_grad = False
 
     return model
@@ -177,6 +178,7 @@ def fine_tune(args):
                          enable_progress_bar=True)
     trainer.logger._log_graph = True         # If True, we plot the computation graph in tensorboard
     model = Multu_Module(args.model_name, args.optimizer_name)
+    trainer.fit(model, train_loader, val_loader)
     # # Check whether pretrained model exists. If yes, load it and skip training
     # pretrained_filename = os.path.join(args.checkpoint_path, args.model_name + ".ckpt")
     # if os.path.isfile(pretrained_filename):
@@ -218,7 +220,7 @@ def parseArgs():
                         help="Batch size per GPU/CPU for evaluation.")
     parser.add_argument("--checkpoint_path", default=None, type=str, required=True,
                         help="path to store checkpoints")
-    parser.add_argument("--max_epochs", default=10, type=int, required=False,
+    parser.add_argument("--max_epochs", default=1, type=int, required=False,
                         help="Maximum number of epochs, most likely the number of epochs")
     parser.add_argument("--device", default='cpu', type=str, required=False,
                         help="cpu or cuda for training")
