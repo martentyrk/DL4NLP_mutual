@@ -9,10 +9,10 @@ Original file is located at
 
 import argparse
 import logging
-import json
 import os
 import random
 import numpy as np
+import json
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -20,13 +20,11 @@ from tqdm import tqdm
 import torch.optim as optim
 import torch.utils.data as data
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoModel, AutoTokenizer
-from transformers import BertTokenizer, BertModel
+from transformers import AutoTokenizer, BertForMultipleChoice
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
-
-def load_model(model_name, num_classes, freeze_lm=True):
+def load_model(model_name, freeze_lm=True):
     """
     This function loads the a pretrained model and add a classifier layer on top
     Inputs:
@@ -36,50 +34,54 @@ def load_model(model_name, num_classes, freeze_lm=True):
         freeze_lm: boolean parameter indicating if to freeze weights of pretrained model
     """
     ## Load pretrained model
-    model = BertModel.from_pretrained("bert-base-uncased")
+    if model_name == 'bert_for_multiple_choice':
+      model = BertForMultipleChoice.from_pretrained("bert-base-uncased")
+    else:
+      pass
 
-    ## freeze all weights in LM to reduce computational complex
+    ## freeze all weights in LM except last layer
     if freeze_lm:
         for name, param in model.named_parameters():
+          if name != 'classifier':
             param.requires_grad = False
-
-    ## Define a classifier layer and add it to the LM
-    output_dimension = model.config.hidden_size
-    linear_layer = nn.Linear(output_dimension, num_classes)
-    nn.init.normal_(linear_layer.weight, 0, 0.01)
-    
-    model = nn.Sequential(model, linear_layer)
 
     return model
 
-def create_dataset(data_path, model_name):
+def create_dataset(data_dir, max_length):
     """
     This function creates dataset for dataloader
     Inputs:
         data_path: path to dataset
-        model_name - name of the pretrained model
     """
-    ## Load tokenizer of chosen model
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    ## Load pretrained model and tokenizer of chosen model
+    tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 
-    ## Load data
-    with open(data_path, "r") as file:
-      data = file.read()
-    
-    data = json.loads(data)
+    data = []
+    for filename in os.listdir(data_dir):
+        # Check if the item is a file (not a subdirectory)
+        file_path = os.path.join(data_dir, filename)
+        if os.path.isfile(file_path):
+            ## Load data
+            with open(file_path, "r") as file:
+              f = file.read()
+              f = json.loads(f)
+              data.append(f)
+
     ## Get diagolue, choices, and answers
-    contexts = [sample['article'] for sample in [data]]
-    choices = [sample['options'] for sample in [data]]
+    contexts = [sample['article'] for sample in data]
+    choices = [sample['options'] for sample in data]
     map_to_int = {'A': 0, 'B': 1, 'C': 2, 'D': 3}
-    labels = [map_to_int[sample['answers']] for sample in [data]]
+    labels = [map_to_int[sample['answers']] for sample in data]
+
     ## Create data by concatenating context with each choice
     X = [tokenizer([context]*4,
                    choice,
                    return_tensors="pt",
-                   padding=True) for context, choice in zip(contexts, choices)]
-    y = [torch.tensor(label).unsqueeze(0) for label in labels]
+                   max_length=max_length,
+                   truncation=True,
+                   padding="max_length") for context, choice in zip(contexts, choices)]
+    y = [torch.tensor(label) for label in labels]
     return X,y
-
 
 class MultuDataset(Dataset):
     """
@@ -106,50 +108,50 @@ class Multu_Module(pl.LightningModule):
           """
           super().__init__()
           self.model = load_model(args.model_name,
-                                  args.num_classes,
                                   args.freeze_lm)
           self.loss_module = nn.CrossEntropyLoss()
           self.optimizer_name = args.optimizer
+          self.optim_hparams = args.optim_hparams
 
     def forward(self, instance):
         return self.model(instance)
 
-
-    #TODO: Add hparameter for learning rate
     def configure_optimizers(self):
         if self.optimizer_name == "Adam":
             optimizer = optim.AdamW(
-                self.parameters(), 1e-3)
+                self.parameters(), **self.optim_hparams)
         elif self.optimizer_name == "SGD":
-            optimizer = optim.SGD(self.parameters(), 1e-3)
+            optimizer = optim.SGD(self.parameters(), **self.optim_hparams)
         else:
             assert False, f"Unknown optimizer: \"{self.optimizer_name}\""
-            
-            
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=1e-3, total_steps=10)
-        return [optimizer], [scheduler]
-        
 
     def training_step(self, batch, batch_idx):
-        sequence, labels = batch
-        preds = self.model(sequence)
-        loss = self.loss_module(preds, labels)
-        acc = (preds.argmax(dim=-1) == labels.argmax(dim=-1)).float().mean()
+        input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
+        preds = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
+        loss = preds.loss
+        acc = (preds.argmax(dim=-1) == labels).float().mean()
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        sequence, labels = batch
-        preds = self.model(sequence).argmax(dim=-1)
-        acc = (preds.argmax(dim=-1) == labels.argmax(dim=-1)).float().mean()
+        input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
+        preds = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
+        acc = (preds.argmax(dim=-1) == labels).float().mean()
         self.log('val_acc', acc)
 
     def test_step(self, batch, batch_idx):
-        sequence, labels = batch
-        preds = self.model(sequence).argmax(dim=-1)
-        acc = (preds.argmax(dim=-1) == labels.argmax(dim=-1)).float().mean()
+        input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
+        preds = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
+        acc = (preds.argmax(dim=-1) == labels).float().mean()
         self.log('test_acc', acc)
+
+    def unpack_batch(self, batch):
+        input_ids = batch[0]['input_ids']
+        attention_masks = batch[0]['attention_mask']
+        token_type_ids = batch[0]['token_type_ids']
+        labels = batch[1]
+        return input_ids, attention_masks, token_type_ids, labels
 
 def fine_tune(args):
     """
@@ -158,12 +160,9 @@ def fine_tune(args):
         args - user defined arguments
     """
     # Create dataset
-    train_X, train_y = create_dataset(args.train_data_path, args.model_name)
-    val_X, val_y = create_dataset(args.val_data_path, args.model_name)
-    test_X, test_y = create_dataset(args.test_data_path, args.model_name)
-    train_dataset = MultuDataset(train_X, train_y)
-    val_dataset = MultuDataset(val_X, val_y)
-    test_dataset = MultuDataset(test_X, test_y)
+    train_dataset = MultuDataset(create_dataset(args.train_data_path, args.max_length))
+    val_dataset = MultuDataset(create_dataset(args.val_data_path, args.max_length))
+    test_dataset = MultuDataset(create_dataset(args.test_data_path, args.max_length))
 
     # Create dataloader
     train_loader = data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, pin_memory=True, num_workers=args.num_workers)
@@ -171,7 +170,7 @@ def fine_tune(args):
     test_loader = data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False, num_workers=args.num_workers)
 
     # Create a PyTorch Lightning trainer with the generation callback
-    trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name + "_model"),
+    trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name),
                          accelerator="gpu" if str(args.device).startswith("cuda") else "cpu",
                          devices=1,
                          max_epochs=args.max_epochs,
@@ -181,7 +180,7 @@ def fine_tune(args):
     trainer.logger._log_graph = True         # If True, we plot the computation graph in tensorboard
 
     # Check whether pretrained model exists. If yes, load it and skip training
-    pretrained_filename = os.path.join(args.checkpoint_path, "_" + args.model_name + ".ckpt")
+    pretrained_filename = os.path.join(args.checkpoint_path, args.model_name + ".ckpt")
     if os.path.isfile(pretrained_filename):
         print(f"Found pretrained model at {pretrained_filename}, loading...")
         model = Multu_Module.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
@@ -205,30 +204,30 @@ def parseArgs():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
-    parser.add_argument("--model_name", default='bert-base-uncased', type=str, required=False,
+    parser.add_argument("--model_name", default='bert_for_multiple_choice', type=str, required=True,
                         help="name of pre-trained-language model")
-    parser.add_argument("--num_classes", default=4, type=int, required=False,
-                        help="number of classes")
-    parser.add_argument("--train_data_path", default='/Users/marten/UvA labs/DL4NLP_mutual/data/mutual/train/train_1.txt', type=str, required=False,
+    parser.add_argument("--optimizer_name", default='Adam', type=str, required=True,
+                        help="optimizer")
+    parser.add_argument("--train_data_path", default=None, type=str, required=True,
                         help="path of training data")
-    parser.add_argument("--val_data_path", default='/Users/marten/UvA labs/DL4NLP_mutual/data/mutual/dev/dev_1.txt', type=str, required=False,
+    parser.add_argument("--val_data_path", default=None, type=str, required=True,
                         help="path of validation data")
-    parser.add_argument("--test_data_path", default='/Users/marten/UvA labs/DL4NLP_mutual/data/mutual/dev/dev_2.txt', type=str, required=False,
+    parser.add_argument("--test_data_path", default=None, type=str, required=True,
                         help="path of test data")
+    parser.add_argument("--max_length", default=512, type=int, required=True,
+                        help="Maximum length of input sequence")
     parser.add_argument("--batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
     parser.add_argument("--num_workers", default=4, type=int,
                         help="number of cpus/gpus to run on parallel")
-    parser.add_argument("--checkpoint_path", default='', type=str, required=False,
+    parser.add_argument("--checkpoint_path", default=None, type=str, required=True,
                         help="path to store checkpoints")
-    parser.add_argument("--max_epochs", default=1, type=int, required=False,
+    parser.add_argument("--max_epochs", default=10, type=int, required=False,
+                        help="Maximum number of epochs, most likely the number of epochs")
+    parser.add_argument("--max_length", default=512, type=int, required=False,
                         help="Maximum number of epochs, most likely the number of epochs")
     parser.add_argument("--device", default='cpu', type=str, required=False,
-                        help="Device you want to train on")
-    parser.add_argument("--freeze_lm", default=True, type=bool, required=False,
-                        help="If we want to freeze all layers of the model or not")
-    parser.add_argument("--optimizer", default='Adam', type=str, required=False,
-                        help="Name of the optimizer, Adam, SGD")
+                        help="cpu or cuda for training")
 
     args = parser.parse_args()
     return args
