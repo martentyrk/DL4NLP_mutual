@@ -13,6 +13,8 @@ import os
 import random
 import numpy as np
 import json
+import comet_ml
+from lightning.pytorch.loggers import CometLogger
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -23,6 +25,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer, BertForMultipleChoice
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def load_model(model_name):
@@ -97,31 +100,50 @@ class MultuDataset(Dataset):
     def __getitem__(self, idx):
         return self.data[idx], self.labels[idx]
 
+
+class ScriptableModel(torch.nn.Module):
+    def __init__(self, lightning_module):
+        super().__init__()
+        self.lightning_module = lightning_module
+
+    def forward(self, x):
+        return self.lightning_module(x)
+
+
 class Multu_Module(pl.LightningModule):
     """
     Torch lightning training pipeline
     """
-    def __init__(self, model_name, optimizer_name):
+    def __init__(self, model_name, optimizer_name, optimizer_hparams, ls):
           """
           Inputs:
               args - user defined arguments
           """
           super().__init__()
+          self.save_hyperparameters()
           self.model = load_model(model_name)
           self.loss_module = nn.CrossEntropyLoss()
           self.optimizer_name = optimizer_name
+          self.ls = ls
+          self.example_input_array = torch.tensor([[[1]*512]])
 
     def forward(self, instance):
         return self.model(instance)
 
     def configure_optimizers(self):
-        if self.optimizer_name == "Adam":
-            optimizer = optim.AdamW(
-                self.parameters())
-        elif self.optimizer_name == "SGD":
-            optimizer = optim.SGD(self.parameters())
+        if self.hparams.optimizer_name == "Adam":
+            optimizer = optim.AdamW(self.parameters(), **self.hparams.optimizer_hparams)
+        elif self.hparams.optimizer_name == "SGD":
+            optimizer = optim.SGD(self.parameters(), **self.hparams.optimizer_hparams)
         else:
             assert False, f"Unknown optimizer: \"{self.optimizer_name}\""
+
+        # whether or not use learning rate scheduler. If so, use step delay after 20, 50 epochs
+        if self.ls:
+            scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[20, 50], gamma=0.1)
+            return [optimizer], [scheduler]
+        else:
+            return [optimizer]
 
     def training_step(self, batch, batch_idx):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
@@ -170,14 +192,25 @@ def fine_tune(args):
     val_loader = data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False, num_workers=args.num_workers)
     test_loader = data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False, num_workers=args.num_workers)
 
+
+    comet_logger = CometLogger(
+        api_key="API_KEY", ## change to your api key
+        project_name="mutual",
+        workspace="wuwangyang24",
+        save_dir="/Users/wangyangwu/Downloads/checkpoint",  # Optional
+        experiment_name="default",  # Optional
+    )
     # Create a PyTorch Lightning trainer with the generation callback
     trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name),
                          accelerator="gpu" if str(args.device).startswith("cuda") else "cpu",
                          devices=1,
                          max_epochs=args.max_epochs,
-                         enable_progress_bar=True)
+                         enable_progress_bar=True,
+                         logger=comet_logger
+                         )
     trainer.logger._log_graph = True         # If True, we plot the computation graph in tensorboard
-    model = Multu_Module(args.model_name, args.optimizer_name)
+    model = Multu_Module(args.model_name, args.optimizer_name, args.optimizer_hparams, args.lr_scheduler)
+
     trainer.fit(model, train_loader, val_loader)
     # # Check whether pretrained model exists. If yes, load it and skip training
     # pretrained_filename = os.path.join(args.checkpoint_path, args.model_name + ".ckpt")
@@ -204,27 +237,31 @@ def parseArgs():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
-    parser.add_argument("--model_name", default='bert_for_multiple_choice', type=str, required=True,
+    parser.add_argument("-m", "--model_name", default='bert_for_multiple_choice', type=str, required=True,
                         help="name of pre-trained-language model")
-    parser.add_argument("--optimizer_name", default='Adam', type=str, required=True,
+    parser.add_argument("-opm", "--optimizer_name", default='Adam', type=str, required=True,
                         help="optimizer")
-    parser.add_argument("--train_data_path", default=None, type=str, required=True,
+    parser.add_argument("-tp", "--train_data_path", default=None, type=str, required=True,
                         help="path of training data")
-    parser.add_argument("--val_data_path", default=None, type=str, required=True,
+    parser.add_argument("-vp", "--val_data_path", default=None, type=str, required=True,
                         help="path of validation data")
-    parser.add_argument("--test_data_path", default=None, type=str, required=True,
+    parser.add_argument("-tsp", "--test_data_path", default=None, type=str, required=True,
                         help="path of test data")
-    parser.add_argument("--max_length", default=512, type=int, required=True,
+    parser.add_argument("-ml", "--max_length", default=512, type=int, required=True,
                         help="Maximum length of input sequence")
-    parser.add_argument("--batch_size", default=8, type=int, required=True,
+    parser.add_argument("-bs", "--batch_size", default=8, type=int, required=True,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--checkpoint_path", default=None, type=str, required=True,
+    parser.add_argument("-cp", "--checkpoint_path", default=None, type=str, required=True,
                         help="path to store checkpoints")
-    parser.add_argument("--max_epochs", default=1, type=int, required=False,
+    parser.add_argument("-oph", "--optimizer_hparams", default=None, type=json.loads, required=True,
+                        help="hyperparameter of optimizer")  
+    parser.add_argument("-ls", "--lr_scheduler", default=False, type=bool, required=False,
+                        help="if using learning rate scheduler")  
+    parser.add_argument("-mp", "--max_epochs", default=1, type=int, required=False,
                         help="Maximum number of epochs, most likely the number of epochs")
-    parser.add_argument("--device", default='cpu', type=str, required=False,
+    parser.add_argument("-d", "--device", default='cpu', type=str, required=False,
                         help="cpu or cuda for training")
-    parser.add_argument("--num_workers", default=4, type=int, required=False,
+    parser.add_argument("-nw", "--num_workers", default=4, type=int, required=False,
                         help="number of cpus/gpus to run on parallel")
 
     args = parser.parse_args()
