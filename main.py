@@ -14,11 +14,11 @@ def parseArgs():
                         help="name of pre-trained-language model")
     parser.add_argument("--data_dir", default='data/mutual/', type=str, required=False,
                         help="path of training data")
-    parser.add_argument("--batch_size", default=8, type=int,
+    parser.add_argument("--batch_size", default=1, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
     parser.add_argument("--num_workers", default=4, type=int,
                         help="number of cpus/gpus to run on parallel")
-    parser.add_argument("--checkpoint_path", default='checkpoints', type=str, required=False,
+    parser.add_argument("--checkpoint_path", default='checkpoint', type=str, required=False,
                         help="path to store checkpoints")
     parser.add_argument("--max_epochs", default=1, type=int, required=False,
                         help="Maximum number of epochs, most likely the number of epochs")
