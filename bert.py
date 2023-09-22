@@ -13,8 +13,10 @@ import os
 import random
 import numpy as np
 import json
+import tqdm
 import comet_ml
 from lightning.pytorch.loggers import CometLogger
+from pytorch_lightning.loggers import WandbLogger
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -60,7 +62,7 @@ def create_dataset(data_dir, max_length):
     tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 
     data = []
-    for filename in os.listdir(data_dir):
+    for filename in tqdm(os.listdir(data_dir)):
         # Check if the item is a file (not a subdirectory)
         file_path = os.path.join(data_dir, filename)
         if os.path.isfile(file_path):
@@ -201,6 +203,7 @@ def fine_tune(args):
         experiment_name="default",  # Optional
     )
     # Create a PyTorch Lightning trainer with the generation callback
+    # wandb_logger = WandbLogger(log_model="all")
     trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name),
                          accelerator="gpu" if str(args.device).startswith("cuda") else "cpu",
                          devices=1,
@@ -237,21 +240,21 @@ def parseArgs():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
-    parser.add_argument("-m", "--model_name", default='bert_for_multiple_choice', type=str, required=True,
+    parser.add_argument("-m", "--model_name", default='bert_for_multiple_choice', type=str, required=False,
                         help="name of pre-trained-language model")
-    parser.add_argument("-opm", "--optimizer_name", default='Adam', type=str, required=True,
+    parser.add_argument("-opm", "--optimizer_name", default='Adam', type=str, required=False,
                         help="optimizer")
-    parser.add_argument("-tp", "--train_data_path", default=None, type=str, required=True,
+    parser.add_argument("-tp", "--train_data_path", default='data/mutual/train', type=str, required=False,
                         help="path of training data")
-    parser.add_argument("-vp", "--val_data_path", default=None, type=str, required=True,
+    parser.add_argument("-vp", "--val_data_path", default='data/mutual/dev', type=str, required=False,
                         help="path of validation data")
-    parser.add_argument("-tsp", "--test_data_path", default=None, type=str, required=True,
+    parser.add_argument("-tsp", "--test_data_path", default=None, type=str, required=False,
                         help="path of test data")
-    parser.add_argument("-ml", "--max_length", default=512, type=int, required=True,
+    parser.add_argument("-ml", "--max_length", default=512, type=int, required=False,
                         help="Maximum length of input sequence")
-    parser.add_argument("-bs", "--batch_size", default=8, type=int, required=True,
+    parser.add_argument("-bs", "--batch_size", default=8, type=int, required=False,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("-cp", "--checkpoint_path", default=None, type=str, required=True,
+    parser.add_argument("-cp", "--checkpoint_path", default='checkpoints', type=str, required=False,
                         help="path to store checkpoints")
     parser.add_argument("-oph", "--optimizer_hparams", default=None, type=json.loads, required=True,
                         help="hyperparameter of optimizer")  
