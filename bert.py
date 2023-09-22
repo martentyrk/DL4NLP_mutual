@@ -160,7 +160,7 @@ def fine_tune(args):
         save_dir="checkpoint/", 
     )
     trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name + "_model"),
-                         accelerator="gpu" if str(args.device).startswith("cuda") else "cpu",
+                         accelerator=args.device,
                          devices=1,
                          max_epochs=args.max_epochs,
                          callbacks=[ModelCheckpoint(save_weights_only=True, mode="max", monitor="val_acc"),
