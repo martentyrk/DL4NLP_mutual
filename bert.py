@@ -12,7 +12,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from pytorch_lightning.loggers import CometLogger
 import torch.optim as optim
 import torch.utils.data as data
@@ -24,7 +24,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-load_dotenv()
+# load_dotenv()
 
 def simple_accuracy(preds, labels):
     return (preds == labels).mean()
@@ -71,6 +71,12 @@ class Mutual_Module(pl.LightningModule):
                                 args.freeze_lm)
         self.loss_module = nn.CrossEntropyLoss()
 
+        self.margin = args.contrastive_margin
+        self.use_contrastive = args.use_contrastive
+        self.contrastive_weight = args.contrastive_weight
+        self.use_correlation = args.use_correlation
+        self.correlation_weight = args.correlation_weight
+
 
     def forward(self, instance):
         return self.model(torch.Tensor(instance))
@@ -81,6 +87,40 @@ class Mutual_Module(pl.LightningModule):
         optimizer = optim.AdamW(self.parameters(), 1e-3)    
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=1e-3, total_steps=10)
         return [optimizer], [scheduler]
+
+    # Todo: contrasive loss, still need customization
+    def contrastive_loss(self, outputs, labels):
+        # Extract the logits for each option
+        logits = outputs.logits
+        # Compute distances between each option and the context
+        distances = torch.norm(logits.unsqueeze(1) - logits.unsqueeze(0), dim=-1)
+        # Fetch distances of the correct answers
+        positive_distances = distances[torch.arange(distances.size(0)), labels]
+        # Fetch the smallest negative distance (i.e., the distance of the closest incorrect option to the context)
+        negative_distances, _ = distances.scatter(1, labels.unsqueeze(1), float('inf')).min(dim=-1)
+        # Contrastive loss: encourage the distance of the correct answer to be at least a 'margin' smaller than that of the incorrect answer
+        loss = torch.relu(positive_distances - negative_distances + self.margin)
+        return loss.mean()
+
+    # Todo: correlation loss
+    def correlation_loss(self, outputs):
+        # Extract the logits for each option
+        logits = outputs.logits
+        mean_logits = logits.mean(dim=0)
+        # Compute the centered logits
+        centered_logits = logits - mean_logits
+        # Compute the covariance matrix
+        covariance = torch.mm(centered_logits, centered_logits.t())
+        # Compute the correlation matrix
+        correlation = covariance / torch.sqrt(
+            torch.mm(covariance.diag().view(-1, 1), covariance.diag().view(1, -1))
+        )
+        # Exclude the diagonal elements
+        num_options = correlation.size(0)
+        device = logits.device
+        off_diagonal = correlation - torch.eye(num_options, device=device)
+        loss = off_diagonal.pow(2).sum()
+        return loss
         
 
     def training_step(self, batch):
@@ -96,6 +136,19 @@ class Mutual_Module(pl.LightningModule):
         acc = simple_accuracy(preds_pos_1, out_label_ids)
         
         loss = self.loss_module(logits, labels)
+
+        if self.use_contrastive or self.use_correlation:
+            if self.use_contrastive and self.use_correlation:
+                print('USING BOTH')
+                loss += self.contrastive_weight * self.contrastive_loss(outputs, labels) + self.correlation_weight * self.correlation_loss(outputs)
+            elif self.use_contrastive:
+                print('USING CONTRASTIVE')
+                loss += self.contrastive_weight * self.contrastive_loss(outputs, labels)
+            else:
+                print('USING CORRELATION')
+                loss += self.correlation_weight * self.correlation_loss(outputs)
+
+
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
         return loss

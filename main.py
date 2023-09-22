@@ -14,7 +14,7 @@ def parseArgs():
                         help="name of pre-trained-language model")
     parser.add_argument("--data_dir", default='data/mutual/', type=str, required=False,
                         help="path of training data")
-    parser.add_argument("--batch_size", default=1, type=int,
+    parser.add_argument("--batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
     parser.add_argument("--num_workers", default=4, type=int,
                         help="number of cpus/gpus to run on parallel")
@@ -35,6 +35,18 @@ def parseArgs():
                         help="Size of the validation split from training")
     parser.add_argument("--freeze_lm", default=True, type=bool, required=False,
                         help="Freeze all layers except last")
+
+    # args for regularizers
+    parser.add_argument('--contrastive_margin', type=float, default=0.5,
+                        help='Margin for the contrastive loss.')
+    parser.add_argument("--use_contrastive", default=True, type=bool,
+                        help="Use the contrastive learning-based regularizer")
+    parser.add_argument("--contrastive_weight", default=1.0, type=float,
+                        help="Weight for the contrastive regularizer")
+    parser.add_argument("--use_correlation", default=True, type=bool,
+                        help="Use the correlation matrix-based regularizer")
+    parser.add_argument("--correlation_weight", default=1.0, type=float,
+                        help="Weight for the correlation regularizer")
     args = parser.parse_args()
     return args
 
