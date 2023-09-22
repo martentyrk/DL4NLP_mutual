@@ -48,6 +48,8 @@ def load_model(model_name, num_classes, freeze_lm=True):
         for name, param in model.named_parameters():
             if name != 'classifier':
                 param.requires_grad = False
+            else:
+                param.requires_grad = True
 
     ## Define a classifier layer and add it to the LM
 
@@ -83,62 +85,54 @@ class Mutual_Module(pl.LightningModule):
         return [optimizer], [scheduler]
         
 
-    def training_step(self, batch, batch_idx):
-        hold_batch = tuple(t.to('cpu') for t in batch)
+    def training_step(self, batch):
+        input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
         
-        inputs = {'input_ids': hold_batch[0],
-                    'attention_mask': hold_batch[1],
-                    'token_type_ids': hold_batch[2],
-                    'labels': hold_batch[3]}
             
-        outputs = self.model(batch)
+        outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
         loss, logits = outputs[:2]
         
         preds = logits.detach().cpu().numpy()
-        preds_pos_1 = np.argmax(preds, axis=1)
-        out_label_ids = inputs['labels'].detach().cpu().numpy()
-        acc = simple_accuracy(preds_pos_1, out_label_ids)
+        acc = (np.argmax(preds) == labels).float().mean()
         
-        loss = self.loss_module(preds, out_label_ids)
+        loss = self.loss_module(logits, labels)
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        hold_batch = tuple(t.to('cpu') for t in batch)
+        input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
         
-        with torch.no_grad():
-            inputs = {'input_ids': hold_batch[0],
-                        'attention_mask': hold_batch[1],
-                        'token_type_ids': hold_batch[2],
-                        'labels': hold_batch[3]}
-            outputs = self.model(batch)
-            _, logits = outputs[:2]
+        
+        outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
+        _, logits = outputs[:2]
 
         
         preds = logits.detach().cpu().numpy()
-        preds_pos_1 = np.argmax(preds, axis=1)
-        out_label_ids = inputs['labels'].detach().cpu().numpy()
-        acc = simple_accuracy(preds_pos_1, out_label_ids)
+        acc = (np.argmax(preds) == labels).float().mean()
         self.log('val_acc', acc)
 
-    def test_step(self, batch, batch_idx):
-        batch = tuple(t.to(self.device) for t in batch)
+    def test_step(self, batch):
+        input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
         
-        with torch.no_grad():
-            inputs = {'input_ids': batch[0],
-                        'attention_mask': batch[1],
-                        'token_type_ids': batch[2],
-                        'labels': batch[3]}
-            outputs = self.model(**inputs)
-            _, logits = outputs[:2]
+        
+       
+        outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
+        _, logits = outputs[:2]
 
         
         preds = logits.detach().cpu().numpy()
         preds_pos_1 = np.argmax(preds, axis=1)
-        out_label_ids = inputs['labels'].detach().cpu().numpy()
+        out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
         self.log('test_acc', acc)
+        
+    def unpack_batch(self, batch):
+        input_ids = batch[0]
+        attention_masks = batch[1]
+        token_type_ids = batch[2]
+        labels = batch[3]
+        return input_ids, attention_masks, token_type_ids, labels
 
 def fine_tune(args):
     """
