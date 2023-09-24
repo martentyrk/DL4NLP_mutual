@@ -11,7 +11,7 @@ def parseArgs():
 
     ## Required parameters
     parser.add_argument("--model_name", default="bert-base-uncased", type=str, required=False,
-                        help="name of pre-trained-language model")
+                        help="name of pre-trained-language model, use either: TODBERT/TOD-BERT-MLM-V1, bert-base-uncased")
     parser.add_argument("--data_dir", default='data/mutual/', type=str, required=False,
                         help="path of training data")
     parser.add_argument("--batch_size", default=1, type=int,
