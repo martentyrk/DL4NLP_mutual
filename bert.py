@@ -149,7 +149,6 @@ class Multu_Module(pl.LightningModule):
         acc = (np.argmax(preds) == labels).float().mean()
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
-        print(pooler_output)
         return {"loss":loss, "embeddings":pooler_output}
 
     def validation_step(self, batch, batch_idx):
@@ -192,10 +191,10 @@ def fine_tune(args):
 
 
     comet_logger = CometLogger(
-                        api_key="81kLXTykFaIpb4HKKAUcj89hU", ## change to your api key
+                        api_key="KEY", ## change to your api key
                         project_name="mutual",
-                        workspace="wuwangyang24",
-                        save_dir="/Users/wangyangwu/Downloads/checkpoint",  # Optional
+                        workspace="USER",
+                        save_dir="CHECKPOINT_DIR",  # Optional
                         experiment_name="default",  # Optional
     )
     # Create a PyTorch Lightning trainer with the generation callback
