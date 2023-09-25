@@ -137,12 +137,20 @@ class Multu_Module(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
+        # insert a hook to extract intermediate layer output
+        pooler_output = None
+        def model_hook(module, input_, output):
+            nonlocal pooler_output
+            pooler_output = output
+        pooler_hook = self.model.bert.pooler.register_forward_hook(model_hook) 
         preds = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
+        pooler_hook.remove()
         loss = preds.loss
         acc = (np.argmax(preds) == labels).float().mean()
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
-        return loss
+        print(pooler_output)
+        return {"loss":loss, "embeddings":pooler_output}
 
     def validation_step(self, batch, batch_idx):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
