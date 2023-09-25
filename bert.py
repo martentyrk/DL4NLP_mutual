@@ -78,8 +78,8 @@ class Mutual_Module(pl.LightningModule):
 
     #TODO: Add hparameter for learning rate
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), 1e-3)    
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=1e-3, total_steps=10)
+        optimizer = optim.AdamW(self.parameters(), 1e-5)    
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
         return [optimizer], [scheduler]
         
 
@@ -159,7 +159,7 @@ def fine_tune(args):
         workspace=os.getenv('WORKSPACE'),
         save_dir="checkpoint/", 
     )
-    trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name + "_model"),
+    trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name),
                          accelerator=args.device,
                          devices=1,
                          max_epochs=args.max_epochs,
@@ -170,7 +170,10 @@ def fine_tune(args):
     trainer.logger._log_graph = True         # If True, we plot the computation graph in tensorboard
 
     # Check whether pretrained model exists. If yes, load it and skip training
-    pretrained_filename = os.path.join(args.checkpoint_path, "_" + args.model_name + ".ckpt")
+    pretrained_filename = os.path.join(args.checkpoint_path, args.model_name + ".ckpt")
+    
+    print(pretrained_filename, ' pretrained filename!!!!!!')
+    
     if os.path.isfile(pretrained_filename):
         print(f"Found pretrained model at {pretrained_filename}, loading...")
         model = Mutual_Module.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
