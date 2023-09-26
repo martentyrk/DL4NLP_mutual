@@ -106,6 +106,7 @@ class Mutual_Module(pl.LightningModule):
     def correlation_loss(self, outputs):
         # Extract the logits for each option
         logits = outputs.logits
+
         mean_logits = logits.mean(dim=0)
         # Compute the centered logits
         centered_logits = logits - mean_logits
@@ -121,13 +122,51 @@ class Mutual_Module(pl.LightningModule):
         off_diagonal = correlation - torch.eye(num_options, device=device)
         loss = off_diagonal.pow(2).sum()
         return loss
+
+    def correlation_loss_embeddings(self, embeddings):
+        # print('EMBEDS: ', embeddings.shape)
+        # covariance
+        meanVector = embeddings.mean(dim=0)
+        # print('mean vector: ', meanVector.shape)
+        # centereVectors = embeddings - meanVector
+        centereVectors = embeddings-embeddings.mean(dim=0)
+        # print('centere vectors: ', centereVectors)
+        # estimate covariance matrix
+        featureDim = meanVector.shape[0]
+        dataCount = embeddings.shape[0]
+        covMatrix = ((centereVectors.t()) @ centereVectors) / (dataCount - 1)
+        # print('cov matrix: ', covMatrix)
+
+        # normalize covariance matrix
+        stdVector = torch.std(embeddings, dim=0)
+        # print('std: ', stdVector)
+        sigmaSigmaMatrix = (stdVector.unsqueeze(1)) @ (stdVector.unsqueeze(0))
+        # print('sigma: ', sigmaSigmaMatrix)
+        normalizedConvMatrix = covMatrix / sigmaSigmaMatrix
+        # print('normal: ', normalizedConvMatrix)
+
+        deltaMatrix = normalizedConvMatrix - torch.eye(featureDim).to(self.device)
+        # print('delta: ', deltaMatrix)
+        loss = torch.norm(deltaMatrix)  # Frobenius norm
+        print('loss in method: ', loss)
+        return loss
         
 
     def training_step(self, batch):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
-        
+
+        pooler_output = None
+
+        def model_hook(module, input_, output):
+            nonlocal pooler_output
+            pooler_output = output #embeddings
+
+        pooler_hook = self.model.bert.pooler.register_forward_hook(model_hook)
             
         outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
+
+        pooler_hook.remove()
+
         loss, logits = outputs[:2]
         
         preds = logits.detach().cpu().numpy()
@@ -140,15 +179,15 @@ class Mutual_Module(pl.LightningModule):
         if self.use_contrastive or self.use_correlation:
             if self.use_contrastive and self.use_correlation:
                 print('USING BOTH')
-                loss += self.contrastive_weight * self.contrastive_loss(outputs, labels) + self.correlation_weight * self.correlation_loss(outputs)
+                loss += self.contrastive_weight * self.contrastive_loss_embeddings(pooler_output, labels) + self.correlation_weight * self.correlation_loss_embeddings(pooler_output)
             elif self.use_contrastive:
                 print('USING CONTRASTIVE')
-                loss += self.contrastive_weight * self.contrastive_loss(outputs, labels)
+                loss += self.contrastive_weight * self.contrastive_loss_embeddings(pooler_output, labels)
             else:
                 print('USING CORRELATION')
-                loss += self.correlation_weight * self.correlation_loss(outputs)
+                loss += self.correlation_weight * self.correlation_loss_embeddings(pooler_output)
 
-
+        # print('pooler output: ', pooler_output)
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
         return loss
