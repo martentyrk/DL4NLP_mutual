@@ -8,12 +8,12 @@ Original file is located at
 """
 from dataset import processors
 import os
+from pytorch_lightning.loggers import CometLogger
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from dotenv import load_dotenv
-from pytorch_lightning.loggers import CometLogger
 import torch.optim as optim
 import torch.utils.data as data
 from torch.utils.data import DataLoader, Dataset
@@ -158,6 +158,7 @@ def fine_tune(args):
         project_name="mutual",
         workspace=os.getenv('WORKSPACE'),
         save_dir="checkpoint/", 
+        experiment_name=str(args.model_name + "_batch_size" + str(args.batch_size) + '_epochs'+str(args.max_epochs))
     )
     trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name),
                          accelerator=args.device,

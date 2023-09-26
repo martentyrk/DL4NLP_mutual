@@ -14,7 +14,7 @@ def parseArgs():
                         help="name of pre-trained-language model, use either: TODBERT/TOD-BERT-MLM-V1, bert-base-uncased")
     parser.add_argument("--data_dir", default='data/mutual/', type=str, required=False,
                         help="path of training data")
-    parser.add_argument("--batch_size", default=1, type=int,
+    parser.add_argument("--batch_size", default=64, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
     parser.add_argument("--num_workers", default=4, type=int,
                         help="number of cpus/gpus to run on parallel")
