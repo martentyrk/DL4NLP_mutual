@@ -126,29 +126,48 @@ class Mutual_Module(pl.LightningModule):
     def correlation_loss_embeddings(self, embeddings):
         # print('EMBEDS: ', embeddings.shape)
         # covariance
-        meanVector = embeddings.mean(dim=0)
-        # print('mean vector: ', meanVector.shape)
-        # centereVectors = embeddings - meanVector
-        centereVectors = embeddings-embeddings.mean(dim=0)
-        # print('centere vectors: ', centereVectors)
-        # estimate covariance matrix
-        featureDim = meanVector.shape[0]
-        dataCount = embeddings.shape[0]
-        covMatrix = ((centereVectors.t()) @ centereVectors) / (dataCount - 1)
-        # print('cov matrix: ', covMatrix)
+        # meanVector = embeddings.mean(dim=0)
+        # # print('mean vector: ', meanVector.shape)
+        # # centereVectors = embeddings - meanVector
+        # centereVectors = embeddings-embeddings.mean(dim=0)
+        # # print('centere vectors: ', centereVectors)
+        # # estimate covariance matrix
+        # featureDim = meanVector.shape[0]
+        # dataCount = embeddings.shape[0]
+        # covMatrix = ((centereVectors.t()) @ centereVectors) / (dataCount - 1)
+        # # print('cov matrix: ', covMatrix)
+        #
+        # # normalize covariance matrix
+        # stdVector = torch.std(embeddings, dim=0)
+        # # print('std: ', stdVector)
+        # sigmaSigmaMatrix = (stdVector.unsqueeze(1)) @ (stdVector.unsqueeze(0))
+        # # print('sigma: ', sigmaSigmaMatrix)
+        # normalizedConvMatrix = covMatrix / sigmaSigmaMatrix
+        # # print('normal: ', normalizedConvMatrix)
+        #
+        # deltaMatrix = normalizedConvMatrix - torch.eye(featureDim).to(self.device)
+        # # print('delta: ', deltaMatrix)
+        #
+        # loss = torch.norm(deltaMatrix)  # Frobenius norm
+        #
+        # print('loss in method: ', loss)
 
-        # normalize covariance matrix
-        stdVector = torch.std(embeddings, dim=0)
-        # print('std: ', stdVector)
-        sigmaSigmaMatrix = (stdVector.unsqueeze(1)) @ (stdVector.unsqueeze(0))
-        # print('sigma: ', sigmaSigmaMatrix)
-        normalizedConvMatrix = covMatrix / sigmaSigmaMatrix
-        # print('normal: ', normalizedConvMatrix)
+        mean_embeddings = embeddings.mean(dim=0)
+        # Compute the centered logits
+        centered_embeddings = embeddings - mean_embeddings
+        # Compute the covariance matrix
+        covariance = torch.mm(centered_embeddings, centered_embeddings.t())
+        # Compute the correlation matrix
+        correlation = covariance / torch.sqrt(
+            torch.mm(covariance.diag().view(-1, 1), covariance.diag().view(1, -1))
+        )
+        # Exclude the diagonal elements
+        num_options = correlation.size(0)
+        device = embeddings.device
+        off_diagonal = correlation - torch.eye(num_options, device=device)
+        loss = off_diagonal.pow(2).sum()
+        # print('loss: ', loss)
 
-        deltaMatrix = normalizedConvMatrix - torch.eye(featureDim).to(self.device)
-        # print('delta: ', deltaMatrix)
-        loss = torch.norm(deltaMatrix)  # Frobenius norm
-        print('loss in method: ', loss)
         return loss
         
 
@@ -190,6 +209,7 @@ class Mutual_Module(pl.LightningModule):
         # print('pooler output: ', pooler_output)
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
+        print('loss in train step: ', loss)
         return loss
 
     def validation_step(self, batch, verbose):

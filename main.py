@@ -12,7 +12,7 @@ def parseArgs():
     ## Required parameters
     parser.add_argument("--model_name", default="bert-base-uncased", type=str, required=False,
                         help="name of pre-trained-language model")
-    parser.add_argument("--data_dir", default='data/mutual/', type=str, required=False,
+    parser.add_argument("--data_dir", default='data_short/mutual/', type=str, required=False,
                         help="path of training data")
     parser.add_argument("--batch_size", default=16, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
@@ -20,7 +20,7 @@ def parseArgs():
                         help="number of cpus/gpus to run on parallel")
     parser.add_argument("--checkpoint_path", default='checkpoint', type=str, required=False,
                         help="path to store checkpoints")
-    parser.add_argument("--max_epochs", default=1, type=int, required=False,
+    parser.add_argument("--max_epochs", default=10, type=int, required=False,
                         help="Maximum number of epochs, most likely the number of epochs")
     parser.add_argument("--seed", default=42, type=int, required=False,
                         help="Seed value")
