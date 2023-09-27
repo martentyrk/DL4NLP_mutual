@@ -1,4 +1,5 @@
 import torch.nn as nn
+from transformers.modeling_outputs import MultipleChoiceModelOutput
 
 class TOD(nn.Module):
     """
@@ -21,4 +22,5 @@ class TOD(nn.Module):
         x = x.view(dim0,-1)
         x = self.softmax(x)
         l = self.loss(x, labels)
-        return {"loss":l, "logits":x}
+        print(l)
+        return MultipleChoiceModelOutput(loss=l, logits=x)
