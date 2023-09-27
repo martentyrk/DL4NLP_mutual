@@ -33,6 +33,8 @@ def parseArgs():
                         help="Size of the validation split from training")
     parser.add_argument("--device", default='cpu', type=str, required=False,
                         help="Size of the validation split from training")
+    parser.add_argument("--lr_schedular", default=False, type=bool, required=False,
+                        help="if use learning rate schedular")
     parser.add_argument("--freeze_lm", default=True, type=bool, required=False,
                         help="Freeze all layers except last")
     args = parser.parse_args()
