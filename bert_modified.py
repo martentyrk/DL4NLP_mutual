@@ -81,9 +81,11 @@ class Mutual_Module(pl.LightningModule):
 
     #TODO: Add hparameter for learning rate
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), 1e-5)    
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
-        return [optimizer], [scheduler]
+        optimizer = optim.AdamW(self.parameters(), 1e-5) 
+        if args.lr_schedular:
+            scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
+            return [optimizer], [scheduler]
+        return optimizer
         
 
     def training_step(self, batch):
