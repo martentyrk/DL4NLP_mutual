@@ -95,7 +95,6 @@ class Mutual_Module(pl.LightningModule):
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
         
-        loss = self.loss_module(logits, labels)
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
         return loss
