@@ -22,5 +22,4 @@ class TOD(nn.Module):
         x = x.view(dim0,-1)
         x = self.softmax(x)
         l = self.loss(x, labels)
-        print(l)
         return MultipleChoiceModelOutput(loss=l, logits=x)
