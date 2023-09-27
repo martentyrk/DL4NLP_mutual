@@ -156,6 +156,8 @@ def fine_tune(args):
         tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
     elif args.model_name.lower() == 'tod_bert':
         tokenizer = AutoTokenizer.from_pretrained("TODBERT/TOD-BERT-JNT-V1")
+    else:
+        print("please check model name!")
     train_dataset, val_dataset = load_and_cache_examples(args, args.task_name, tokenizer)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)    
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
