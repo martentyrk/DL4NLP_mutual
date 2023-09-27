@@ -9,10 +9,10 @@ class TOD(nn.Module):
         self.softmax = nn.Softmax()
         self.loss = nn.CrossEntropyLoss()
     
-    def forward(self, x, y):
-        x = self.root_model(x)
+    def forward(self, input_ids, attention_mask, token_type_ids, labels):
+        x = self.root_model(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
         x = self.classifier(x)
         x = x.squeeze(-1)
         x = self.softmax(x)
-        l = loss(x, y)
+        l = loss(x, labels)
         return {"loss":l, "logits":x}
