@@ -161,7 +161,7 @@ def convert_examples_to_features(
                 text_b = ending
             elif model_name.lower() == 'tod_bert':
                 ## append special tokens
-                text_a = f"[CLS][SYS]{context}"
+                text_a = f"[SYS]{context}"
                 text_b = f"[USR]{ending}"
                 
             else:
