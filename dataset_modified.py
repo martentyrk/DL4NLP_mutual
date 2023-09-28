@@ -159,10 +159,14 @@ def convert_examples_to_features(
                 #     text_b = example.question.replace("_", ending)
                 # else:
                 text_b = ending
-            elif model_name.lower == 'tod_bert':
+            elif model_name.lower() == 'tod_bert':
                 ## append special tokens
                 text_a = f"[CLS][SYS]{context}"
                 text_b = f"[USR]{ending}"
+                
+            else:
+                print('Wrong model name:',model_name)
+                break
 
             inputs = tokenizer.encode_plus(
                 text_a,

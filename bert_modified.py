@@ -73,6 +73,7 @@ class Mutual_Module(pl.LightningModule):
                                 num_labels,
                                 args.freeze_lm)
         self.loss_module = nn.CrossEntropyLoss()
+        self.args = args
 
 
     def forward(self, instance):
@@ -82,7 +83,7 @@ class Mutual_Module(pl.LightningModule):
     #TODO: Add hparameter for learning rate
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), 1e-5) 
-        if args.lr_schedular:
+        if self.args.lr_schedular:
             scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
             return [optimizer], [scheduler]
         return optimizer
@@ -156,19 +157,20 @@ def fine_tune(args):
     test_dataset, _ = load_and_cache_examples(args, args.task_name, tokenizer, evaluate=True)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
+    experiment_name = str(args.model_name + "_batch_size" + str(args.batch_size) + '_epochs'+str(args.max_epochs))
     # Create a PyTorch Lightning trainer with the generation callback
     comet_logger = CometLogger(
         api_key=os.getenv('COMET_API_KEY'), ## change to your api key
         project_name="mutual",
         workspace=os.getenv('WORKSPACE'),
         save_dir="checkpoint/", 
-        experiment_name=str(args.model_name + "_batch_size" + str(args.batch_size) + '_epochs'+str(args.max_epochs))
+        experiment_name=experiment_name
     )
     trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name),
                          accelerator=args.device,
                          devices=1,
                          max_epochs=args.max_epochs,
-                         callbacks=[ModelCheckpoint(save_weights_only=True, mode="max", monitor="val_acc"),
+                         callbacks=[ModelCheckpoint(save_weights_only=True, mode="max", monitor="val_acc", dirpath=experiment_name),
                                     LearningRateMonitor("epoch")],
                          enable_progress_bar=True,
                          logger=comet_logger)
