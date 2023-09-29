@@ -12,4 +12,4 @@
 
 source activate bert
 
-srun python main.py --max_epochs 50 --data_dir '/home/scur0670/DL4NLP_mutual/data/mutual' --device 'gpu' --model_name 'tod_bert'
+srun python main.py --max_epochs 50 --freeze_lm --lr_scheduler --data_dir '/home/scur0670/DL4NLP_mutual/data/mutual' --device 'gpu' --model_name 'tod_bert'

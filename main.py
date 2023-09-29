@@ -1,5 +1,5 @@
 import argparse
-from bert_modified import fine_tune
+from bert import fine_tune
 
 
 

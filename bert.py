@@ -19,7 +19,7 @@ import torch.utils.data as data
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
 from transformers import BertConfig, BertForMultipleChoice
-from dataset import load_and_cache_examples
+from dataset_modified import load_and_cache_examples
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
@@ -39,9 +39,12 @@ def load_model(model_name, num_classes, freeze_lm=True):
         freeze_lm: boolean parameter indicating if to freeze weights of pretrained model
     """
     ## Load pretrained model
-    model_config = BertConfig.from_pretrained(model_name, num_labels=num_classes)
-    model = BertForMultipleChoice.from_pretrained(model_name,config=model_config)
-
+    if model_name.lower() == 'bert':
+        model_config = BertConfig.from_pretrained("bert-base-uncased", num_labels=num_classes)
+        model = BertForMultipleChoice.from_pretrained("bert-base-uncased",config=model_config)
+    elif model_name.lower() == 'tod_bert':
+        model_config = BertConfig.from_pretrained('TODBERT/TOD-BERT-JNT-V1', num_labels=num_classes)
+        model = BertForMultipleChoice.from_pretrained('TODBERT/TOD-BERT-JNT-V1',config=model_config)
     ## freeze all weights in LM to reduce computational complex
     if freeze_lm:
         for name, param in model.named_parameters():
@@ -142,7 +145,12 @@ def fine_tune(args):
         args - user defined arguments
     """
     # Create dataset
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    if args.model_name.lower() == 'bert':
+        tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+    elif args.model_name.lower() == 'tod_bert':
+        tokenizer = AutoTokenizer.from_pretrained("TODBERT/TOD-BERT-JNT-V1")
+    else:
+        print("please check model name!")
     
     train_dataset, val_dataset = load_and_cache_examples(args, args.task_name, tokenizer)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)    

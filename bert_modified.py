@@ -15,6 +15,7 @@ from transformers import AutoTokenizer, AutoModel
 from transformers import BertConfig, BertForMultipleChoice
 from dataset_modified import load_and_cache_examples
 from Customized_TOD import TOD
+from datetime import datetime
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
@@ -157,7 +158,10 @@ def fine_tune(args):
     test_dataset, _ = load_and_cache_examples(args, args.task_name, tokenizer, evaluate=True)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
-    experiment_name = str(args.model_name + "_batch_size" + str(args.batch_size) + '_epochs'+str(args.max_epochs))
+    current_dateTime = datetime.now()
+    timestamp = str(str(current_dateTime.hour) + '_' + str(current_dateTime.minute) + '_d' + str(current_dateTime.day) +'/' + str(current_dateTime.month))
+    
+    experiment_name = str(args.model_name + "_batch_size" + str(args.batch_size) + '_epochs'+str(args.max_epochs) + 'time_' + timestamp)
     # Create a PyTorch Lightning trainer with the generation callback
     comet_logger = CometLogger(
         api_key=os.getenv('COMET_API_KEY'), ## change to your api key
