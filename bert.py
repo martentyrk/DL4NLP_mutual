@@ -21,6 +21,8 @@ from transformers import AutoTokenizer
 from transformers import BertConfig, BertForMultipleChoice
 from dataset_modified import load_and_cache_examples
 import pytorch_lightning as pl
+from torchmetrics.retrieval import RetrievalRecall
+from torchmetrics.classification import MulticlassRecall
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -73,6 +75,9 @@ class Mutual_Module(pl.LightningModule):
                                 num_labels,
                                 args.freeze_lm)
         self.loss_module = nn.CrossEntropyLoss()
+        self.args = args
+        self.r1 = MulticlassRecall(top_k=1, average='micro', num_classes=num_labels)
+        self.r2 = MulticlassRecall(top_k=2, average='micro', num_classes=num_labels)
 
 
     def forward(self, instance):
@@ -82,8 +87,12 @@ class Mutual_Module(pl.LightningModule):
     #TODO: Add hparameter for learning rate
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), 1e-5)    
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
-        return [optimizer], [scheduler]
+        
+        if self.args.lr_scheduler:
+            print('TRAINING WITH LEARNING RATE SCHEDULER')
+            scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
+            return [optimizer], [scheduler]
+        return optimizer
         
 
     def training_step(self, batch):
@@ -98,8 +107,14 @@ class Mutual_Module(pl.LightningModule):
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
         
+        #Compute recall@1 and recall@2
+        recall1 = self.r1(logits, labels)
+        recall2 = self.r2(logits, labels)
+        
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
+        self.log('train_R@1', recall1)
+        self.log('train_R@2', recall2)
         return loss
 
     def validation_step(self, batch, verbose):
@@ -114,7 +129,14 @@ class Mutual_Module(pl.LightningModule):
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
+        
+        #Compute recall@1 and recall@2
+        recall1 = self.r1(logits, labels)
+        recall2 = self.r2(logits, labels)
+        
         self.log('val_acc', acc)
+        self.log('val_R@1', recall1)
+        self.log('val_R@2', recall2)
 
     def test_step(self, batch, verbose):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
@@ -129,7 +151,14 @@ class Mutual_Module(pl.LightningModule):
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
+        
+        #Compute recall@1 and recall@2
+        recall1 = self.r1(logits, labels)
+        recall2 = self.r2(logits, labels)
+        
         self.log('test_acc', acc)
+        self.log('test_R@1', recall1)
+        self.log('test_R@2', recall2)
         
     def unpack_batch(self, batch):
         input_ids = batch[0]
