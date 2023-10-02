@@ -90,18 +90,22 @@ class Mutual_Module(pl.LightningModule):
         scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
         return [optimizer], [scheduler]
 
-    # Todo: contrasive loss, still need customization
-    def contrastive_loss(self, outputs, labels):
-        # Extract the logits for each option
+    def contrastive_loss(self, outputs, labels): 
         logits = outputs.logits
-        # Compute distances between each option and the context
-        distances = torch.norm(logits.unsqueeze(1) - logits.unsqueeze(0), dim=-1)
-        # Fetch distances of the correct answers
-        positive_distances = distances[torch.arange(distances.size(0)), labels]
-        # Fetch the smallest negative distance (i.e., the distance of the closest incorrect option to the context)
-        negative_distances, _ = distances.scatter(1, labels.unsqueeze(1), float('inf')).min(dim=-1)
-        # Contrastive loss: encourage the distance of the correct answer to be at least a 'margin' smaller than that of the incorrect answer
-        loss = torch.relu(positive_distances - negative_distances + self.margin)
+    
+        # Logits for the correct answers
+        positive_logits = logits[torch.arange(logits.size(0)), labels]
+    
+        # Set the logits for the correct answers to negative infinity, so they are ignored when finding the maximum
+        negative_logits = logits.clone()
+        negative_logits[torch.arange(logits.size(0)), labels] = float('-inf')
+    
+        # Find the maximum value in each row, which corresponds to the logit of the closest incorrect answer
+        max_negative_logits, _ = negative_logits.max(dim=1)
+    
+        # Calculate loss
+        loss = torch.relu(max_negative_logits - positive_logits + self.margin)
+    
         return loss.mean()
 
     # Todo: correlation loss
