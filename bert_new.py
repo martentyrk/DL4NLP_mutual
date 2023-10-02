@@ -12,6 +12,7 @@ from pytorch_lightning.loggers import CometLogger
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from dotenv import load_dotenv
 import torch.optim as optim
@@ -104,7 +105,7 @@ class Mutual_Module(pl.LightningModule):
         max_negative_logits, _ = negative_logits.max(dim=1)
     
         # Calculate loss
-        loss = torch.relu(max_negative_logits - positive_logits + self.margin)
+        loss = F.leaky_relu(max_negative_logits - positive_logits + self.margin)
     
         return loss.mean()
 
