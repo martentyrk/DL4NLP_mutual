@@ -119,22 +119,41 @@ class Mutual_Module(pl.LightningModule):
     # Todo: correlation loss
     def correlation_loss(self, outputs):
         # Extract the logits for each option
+        # print('outputs shape: ', outputs)
         logits = outputs.logits
+        # print('shape of logits: ', logits.shape)
 
-        mean_logits = logits.mean(dim=0)
-        # Compute the centered logits
-        centered_logits = logits - mean_logits
-        # Compute the covariance matrix
-        covariance = torch.mm(centered_logits, centered_logits.t())
-        # Compute the correlation matrix
-        correlation = covariance / torch.sqrt(
-            torch.mm(covariance.diag().view(-1, 1), covariance.diag().view(1, -1))
-        )
-        # Exclude the diagonal elements
-        num_options = correlation.size(0)
+        # mean_logits = logits.mean(dim=0)
+        # # Compute the centered logits
+        # centered_logits = logits - mean_logits
+        # # Compute the covariance matrix
+        # covariance = torch.mm(centered_logits, centered_logits.t())
+        # # Compute the correlation matrix
+        # correlation = covariance / torch.sqrt(
+        #     torch.mm(covariance.diag().view(-1, 1), covariance.diag().view(1, -1))
+        # )
+        # # Exclude the diagonal elements
+        # num_options = correlation.size(0)
+        # device = logits.device
+        # off_diagonal = correlation - torch.eye(num_options, device=device)
+        # loss = off_diagonal.pow(2).sum()
+
+
+        losses = []
         device = logits.device
-        off_diagonal = correlation - torch.eye(num_options, device=device)
-        loss = off_diagonal.pow(2).sum()
+        # Calculate the correlation matrix for each sample separately
+        for i in range(logits.shape[0]):
+            sample = logits[i]  # Get the i-th sample
+            mean_sample = torch.mean(sample)
+            std_deviation_sample = torch.std(sample)
+            cov_matrix_sample = torch.matmul((sample - mean_sample).unsqueeze(1), (sample - mean_sample).unsqueeze(0))
+            correlation_matrix_sample = cov_matrix_sample / (std_deviation_sample ** 2)
+            num_options = correlation_matrix_sample.size(0)
+            off_diagonal = correlation_matrix_sample - torch.eye(num_options, device=device)
+            losses.append(off_diagonal.pow(2).sum())
+
+
+        loss = sum(losses) / len(losses)
         return loss
 
     def training_step(self, batch):
