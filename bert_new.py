@@ -91,7 +91,14 @@ class Mutual_Module(pl.LightningModule):
         scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
         return [optimizer], [scheduler]
 
-    def contrastive_loss(self, outputs, labels): 
+    def soft_maximum(logits, temperature=0.1):
+        # Replace -inf with a large negative number
+        logits = torch.where(logits == float('-inf'), torch.tensor(-1e10).to(logits.device), logits)
+        probs = torch.nn.functional.softmax(logits / temperature, dim=-1)
+        soft_max = torch.sum(probs * logits, dim=-1)
+        return soft_max
+    
+    def contrastive_loss(self, outputs, labels):
         logits = outputs.logits
     
         # Logits for the correct answers
@@ -102,7 +109,7 @@ class Mutual_Module(pl.LightningModule):
         negative_logits[torch.arange(logits.size(0)), labels] = float('-inf')
     
         # Find the maximum value in each row, which corresponds to the logit of the closest incorrect answer
-        max_negative_logits, _ = negative_logits.max(dim=1)
+        max_negative_logits = soft_maximum(negative_logits, temperature=0.1)
     
         # Calculate loss
         loss = F.leaky_relu(max_negative_logits - positive_logits + self.margin)
