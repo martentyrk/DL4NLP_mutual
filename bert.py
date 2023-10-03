@@ -131,7 +131,7 @@ class Mutual_Module(pl.LightningModule):
         self.log('train_loss', loss)
         self.log('train_R@1', recall1)
         self.log('train_R@2', recall2)
-        self.log('MRR', mrr_score)
+        self.log('train_MRR', mrr_score)
         return loss
 
     def validation_step(self, batch, verbose):
@@ -157,7 +157,7 @@ class Mutual_Module(pl.LightningModule):
         self.log('val_acc', acc)
         self.log('val_R@1', recall1)
         self.log('val_R@2', recall2)
-        self.log('MRR', mrr_score)
+        self.log('val_MRR', mrr_score)
         
     def test_step(self, batch, verbose):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
@@ -183,7 +183,7 @@ class Mutual_Module(pl.LightningModule):
         self.log('test_acc', acc)
         self.log('test_R@1', recall1)
         self.log('test_R@2', recall2)
-        self.log('MRR', mrr_score)
+        self.log('test_MRR', mrr_score)
         
     def unpack_batch(self, batch):
         input_ids = batch[0]
