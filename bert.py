@@ -78,6 +78,7 @@ class Mutual_Module(pl.LightningModule):
         self.args = args
         self.r1 = MulticlassRecall(top_k=1, average='micro', num_classes=num_labels)
         self.r2 = MulticlassRecall(top_k=2, average='micro', num_classes=num_labels)
+        self.mrr = RetrievalMRR()
 
 
     def forward(self, instance):
@@ -143,8 +144,7 @@ class Mutual_Module(pl.LightningModule):
         for i, j in enumerate(labels):
             targets[i,j] = True
         targets = targets.view(-1)
-        mrr = RetrievalMRR()
-        mrr_score = mrr(preds_MRR, targets, indexes=indexes)
+        mrr_score = self.mrr(preds_MRR, targets, indexes=indexes)
         
         self.log('val_acc', acc)
         self.log('val_R@1', recall1)
