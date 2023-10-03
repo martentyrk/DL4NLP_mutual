@@ -21,7 +21,7 @@ from transformers import AutoTokenizer
 from transformers import BertConfig, BertForMultipleChoice
 from dataset_modified import load_and_cache_examples
 import pytorch_lightning as pl
-from torchmetrics.retrieval import RetrievalRecall
+from torchmetrics.retrieval import RetrievalRecall, RetrievalMRR
 from torchmetrics.classification import MulticlassRecall
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
@@ -133,11 +133,24 @@ class Mutual_Module(pl.LightningModule):
         #Compute recall@1 and recall@2
         recall1 = self.r1(logits, labels)
         recall2 = self.r2(logits, labels)
+
+        #Compute MRR
+        row = preds.shape[0]
+        col = preds.shape[1]
+        indexes = torch.arange(row).unsqueeze(1).expand(row, col).view(-1)
+        preds_MRR = preds.view(-1)
+        targets = torch.rand((row,col))>1
+        for i, j in enumerate(labels):
+            targets[i,j] = True
+        targets = targets.view(-1)
+        mrr = RetrievalMRR()
+        mrr_score = mrr(preds_MRR, targets, indexes=indexes)
         
         self.log('val_acc', acc)
         self.log('val_R@1', recall1)
         self.log('val_R@2', recall2)
-
+        self.log('MRR', mrr_score)
+        
     def test_step(self, batch, verbose):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
         
