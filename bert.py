@@ -31,6 +31,18 @@ load_dotenv()
 def simple_accuracy(preds, labels):
     return (preds == labels).mean()
 
+def compute_mrr(logits, labels, mrr):
+    row = logits.shape[0]
+    col = logits.shape[1]
+    indexes = torch.arange(row).unsqueeze(1).expand(row, col).view(-1)
+    preds_MRR = logits.view(-1)
+    targets = torch.rand((row,col))>1
+    for i, j in enumerate(labels):
+        targets[i,j] = True
+    targets = targets.view(-1)
+    mrr_score = mrr(preds_MRR, targets, indexes=indexes)
+    return mrr_score
+
 def load_model(model_name, num_classes, freeze_lm=True):
     """
     This function loads the a pretrained model and add a classifier layer on top
@@ -111,11 +123,15 @@ class Mutual_Module(pl.LightningModule):
         #Compute recall@1 and recall@2
         recall1 = self.r1(logits, labels)
         recall2 = self.r2(logits, labels)
+
+        #Compute mrr score 
+        mrr_score = compute_mrr(logits, labels, self.mrr)
         
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
         self.log('train_R@1', recall1)
         self.log('train_R@2', recall2)
+        self.log('MRR', mrr_score)
         return loss
 
     def validation_step(self, batch, verbose):
@@ -135,16 +151,8 @@ class Mutual_Module(pl.LightningModule):
         recall1 = self.r1(logits, labels)
         recall2 = self.r2(logits, labels)
 
-        #Compute MRR
-        row = preds.shape[0]
-        col = preds.shape[1]
-        indexes = torch.arange(row).unsqueeze(1).expand(row, col).view(-1)
-        preds_MRR = preds.view(-1)
-        targets = torch.rand((row,col))>1
-        for i, j in enumerate(labels):
-            targets[i,j] = True
-        targets = targets.view(-1)
-        mrr_score = self.mrr(preds_MRR, targets, indexes=indexes)
+        #Compute MRR score
+        mrr_score = compute_mrr(logits, labels, self.mrr)
         
         self.log('val_acc', acc)
         self.log('val_R@1', recall1)
@@ -168,10 +176,14 @@ class Mutual_Module(pl.LightningModule):
         #Compute recall@1 and recall@2
         recall1 = self.r1(logits, labels)
         recall2 = self.r2(logits, labels)
+
+        #Compute MRR score
+        mrr_score = compute_mrr(logits, labels, self.mrr)
         
         self.log('test_acc', acc)
         self.log('test_R@1', recall1)
         self.log('test_R@2', recall2)
+        self.log('MRR', mrr_score)
         
     def unpack_batch(self, batch):
         input_ids = batch[0]
