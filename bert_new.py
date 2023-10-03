@@ -81,6 +81,7 @@ class Mutual_Module(pl.LightningModule):
         self.contrastive_weight = args.contrastive_weight
         self.use_correlation = args.use_correlation
         self.correlation_weight = args.correlation_weight
+        self.crossentropy_weight = args.crossentropy_weight
 
     def forward(self, instance):
         return self.model(torch.Tensor(instance))
@@ -91,7 +92,7 @@ class Mutual_Module(pl.LightningModule):
         scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
         return [optimizer], [scheduler]
 
-    def soft_maximum(logits, temperature=0.1):
+    def soft_maximum(self, logits, temperature=0.1):
         # Replace -inf with a large negative number
         logits = torch.where(logits == float('-inf'), torch.tensor(-1e10).to(logits.device), logits)
         probs = torch.nn.functional.softmax(logits / temperature, dim=-1)
@@ -109,7 +110,7 @@ class Mutual_Module(pl.LightningModule):
         negative_logits[torch.arange(logits.size(0)), labels] = float('-inf')
     
         # Find the maximum value in each row, which corresponds to the logit of the closest incorrect answer
-        max_negative_logits = soft_maximum(negative_logits, temperature=0.1)
+        max_negative_logits = self.soft_maximum(negative_logits, temperature=0.1)
     
         # Calculate loss
         loss = F.leaky_relu(max_negative_logits - positive_logits + self.margin)
@@ -168,7 +169,7 @@ class Mutual_Module(pl.LightningModule):
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
 
-        loss = self.loss_module(logits, labels)
+        loss = self.crossentropy_weight * self.loss_module(logits, labels)
 
         if self.use_contrastive or self.use_correlation:
             if self.use_contrastive and self.use_correlation:

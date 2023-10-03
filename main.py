@@ -1,6 +1,6 @@
 import argparse
-from bert import fine_tune
-
+# from bert import fine_tune
+from bert_new import fine_tune
 
 
 def parseArgs():
@@ -14,7 +14,7 @@ def parseArgs():
                         help="name of pre-trained-language model")
     parser.add_argument("--data_dir", default='data_short/mutual/', type=str, required=False,
                         help="path of training data")
-    parser.add_argument("--batch_size", default=16, type=int,
+    parser.add_argument("--batch_size", default=64, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
     parser.add_argument("--num_workers", default=4, type=int,
                         help="number of cpus/gpus to run on parallel")
@@ -39,13 +39,15 @@ def parseArgs():
     # args for regularizers
     parser.add_argument('--contrastive_margin', type=float, default=0.5,
                         help='Margin for the contrastive loss.')
-    parser.add_argument("--use_contrastive", default=False, type=bool,
+    parser.add_argument("--use_contrastive", default=True, type=bool,
                         help="Use the contrastive learning-based regularizer")
-    parser.add_argument("--contrastive_weight", default=1.0, type=float,
+    parser.add_argument("--contrastive_weight", default=0.33, type=float,
                         help="Weight for the contrastive regularizer")
     parser.add_argument("--use_correlation", default=True, type=bool,
                         help="Use the correlation matrix-based regularizer")
-    parser.add_argument("--correlation_weight", default=1.0, type=float,
+    parser.add_argument("--correlation_weight", default=0.33, type=float,
+                        help="Weight for the correlation regularizer")
+    parser.add_argument("--crossentropy_weight", default=0.33, type=float,
                         help="Weight for the correlation regularizer")
     args = parser.parse_args()
     return args
