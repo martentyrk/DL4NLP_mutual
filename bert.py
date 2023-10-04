@@ -31,15 +31,15 @@ load_dotenv()
 def simple_accuracy(preds, labels):
     return (preds == labels).mean()
 
-def compute_mrr(logits, labels, mrr):
+def compute_mrr(logits, labels, mrr, device):
     row = logits.shape[0]
     col = logits.shape[1]
-    indexes = torch.arange(row).unsqueeze(1).expand(row, col).view(-1)
+    indexes = torch.arange(row).unsqueeze(1).expand(row, col).contiguous().view(-1).to(device)
     preds_MRR = logits.view(-1)
     targets = torch.rand((row,col))>1
     for i, j in enumerate(labels):
         targets[i,j] = True
-    targets = targets.view(-1)
+    targets = targets.view(-1).to(device)
     mrr_score = mrr(preds_MRR, targets, indexes=indexes)
     return mrr_score
 
@@ -125,7 +125,7 @@ class Mutual_Module(pl.LightningModule):
         recall2 = self.r2(logits, labels)
 
         #Compute mrr score 
-        mrr_score = compute_mrr(logits, labels, self.mrr)
+        mrr_score = compute_mrr(logits, labels, self.mrr, self.args.device)
         
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
@@ -152,7 +152,7 @@ class Mutual_Module(pl.LightningModule):
         recall2 = self.r2(logits, labels)
 
         #Compute MRR score
-        mrr_score = compute_mrr(logits, labels, self.mrr)
+        mrr_score = compute_mrr(logits, labels, self.mrr, self.args.device)
         
         self.log('val_acc', acc)
         self.log('val_R@1', recall1)
@@ -178,7 +178,7 @@ class Mutual_Module(pl.LightningModule):
         recall2 = self.r2(logits, labels)
 
         #Compute MRR score
-        mrr_score = compute_mrr(logits, labels, self.mrr)
+        mrr_score = compute_mrr(logits, labels, self.mrr, self.args.device)
         
         self.log('test_acc', acc)
         self.log('test_R@1', recall1)
