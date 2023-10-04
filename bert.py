@@ -92,6 +92,13 @@ class Mutual_Module(pl.LightningModule):
         self.r2 = MulticlassRecall(top_k=2, average='micro', num_classes=num_labels)
         self.mrr = RetrievalMRR()
 
+        self.margin = args.contrastive_margin
+        self.use_contrastive = args.use_contrastive
+        self.contrastive_weight = args.contrastive_weight
+        self.use_correlation = args.use_correlation
+        self.correlation_weight = args.correlation_weight
+        self.crossentropy_weight = args.crossentropy_weight
+
 
     def forward(self, instance):
         return self.model(torch.Tensor(instance))
@@ -106,6 +113,69 @@ class Mutual_Module(pl.LightningModule):
             scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
             return [optimizer], [scheduler]
         return optimizer
+
+    def soft_maximum(self, logits, temperature=0.1):
+        # Replace -inf with a large negative number
+        logits = torch.where(logits == float('-inf'), torch.tensor(-1e10).to(logits.device), logits)
+        probs = torch.nn.functional.softmax(logits / temperature, dim=-1)
+        soft_max = torch.sum(probs * logits, dim=-1)
+        return soft_max
+
+    def contrastive_loss(self, outputs, labels):
+        logits = outputs.logits
+
+        # Logits for the correct answers
+        positive_logits = logits[torch.arange(logits.size(0)), labels]
+
+        # Set the logits for the correct answers to negative infinity, so they are ignored when finding the maximum
+        negative_logits = logits.clone()
+        negative_logits[torch.arange(logits.size(0)), labels] = float('-inf')
+
+        # Find the maximum value in each row, which corresponds to the logit of the closest incorrect answer
+        max_negative_logits = self.soft_maximum(negative_logits, temperature=0.1)
+
+        # Calculate loss
+        loss = F.leaky_relu(max_negative_logits - positive_logits + self.margin)
+
+        return loss.mean()
+
+    # Todo: correlation loss
+    def correlation_loss(self, outputs):
+        # Extract the logits for each option
+        # print('outputs shape: ', outputs)
+        logits = outputs.logits
+        # print('shape of logits: ', logits.shape)
+
+        # mean_logits = logits.mean(dim=0)
+        # # Compute the centered logits
+        # centered_logits = logits - mean_logits
+        # # Compute the covariance matrix
+        # covariance = torch.mm(centered_logits, centered_logits.t())
+        # # Compute the correlation matrix
+        # correlation = covariance / torch.sqrt(
+        #     torch.mm(covariance.diag().view(-1, 1), covariance.diag().view(1, -1))
+        # )
+        # # Exclude the diagonal elements
+        # num_options = correlation.size(0)
+        # device = logits.device
+        # off_diagonal = correlation - torch.eye(num_options, device=device)
+        # loss = off_diagonal.pow(2).sum()
+
+        losses = []
+        device = logits.device
+        # Calculate the correlation matrix for each sample separately
+        for i in range(logits.shape[0]):
+            sample = logits[i]  # Get the i-th sample
+            mean_sample = torch.mean(sample)
+            std_deviation_sample = torch.std(sample)
+            cov_matrix_sample = torch.matmul((sample - mean_sample).unsqueeze(1), (sample - mean_sample).unsqueeze(0))
+            correlation_matrix_sample = cov_matrix_sample / (std_deviation_sample ** 2)
+            num_options = correlation_matrix_sample.size(0)
+            off_diagonal = correlation_matrix_sample - torch.eye(num_options, device=device)
+            losses.append(off_diagonal.pow(2).sum())
+
+        loss = sum(losses) / len(losses)
+        return loss
         
 
     def training_step(self, batch):
@@ -114,11 +184,27 @@ class Mutual_Module(pl.LightningModule):
             
         outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
         loss, logits = outputs[:2]
+
         
         preds = logits.detach().cpu().numpy()
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
+
+        loss = self.crossentropy_weight * self.loss_module(logits, labels)
+
+        if self.use_contrastive or self.use_correlation:
+            if self.use_contrastive and self.use_correlation:
+                # print('USING BOTH')
+                loss += self.contrastive_weight * self.contrastive_loss(outputs,
+                                                                        labels) + self.correlation_weight * self.correlation_loss(
+                    outputs)
+            elif self.use_contrastive:
+                # print('USING CONTRASTIVE')
+                loss += self.contrastive_weight * self.contrastive_loss(outputs, labels)
+            else:
+                # print('USING CORRELATION')
+                loss += self.correlation_weight * self.correlation_loss(outputs)
         
         #Compute recall@1 and recall@2
         recall1 = self.r1(logits, labels)
