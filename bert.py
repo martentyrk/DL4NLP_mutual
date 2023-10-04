@@ -15,6 +15,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from dotenv import load_dotenv
 import torch.optim as optim
+import torch.nn.functional as F
 import torch.utils.data as data
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
