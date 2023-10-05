@@ -141,7 +141,9 @@ class Mutual_Module(pl.LightningModule):
         outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
         _, logits = outputs[:2]
 
-        
+        if self.args.A_plus:
+            logits = logits[:-1]
+            
         preds = logits.detach().cpu().numpy()
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()
@@ -167,7 +169,9 @@ class Mutual_Module(pl.LightningModule):
         outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
         _, logits = outputs[:2]
 
-        
+        if self.args.A_plus:
+            logits = logits[:-1]
+            
         preds = logits.detach().cpu().numpy()
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()

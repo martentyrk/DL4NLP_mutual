@@ -96,8 +96,12 @@ class MuTualProcessor(DataProcessor):
         file = self._read_txt(file)
         return self._create_examples(file, 'test')
 
-    def get_labels(self):
+    def get_labels(self, args):
         """See base class."""
+        if args:
+            if args.A_plus:
+                return ["0", "1", "2", "3", "4"]
+            
         return ["0", "1", "2", "3"]
 
     def _read_txt(self, input_dir):
@@ -147,8 +151,8 @@ class MuTualProcessor(DataProcessor):
                 examples.append(
                     SingleInput(
                         example_id=id,
-                        contexts=[article, article, article, article], # this is not efficient but convenient
-                        endings=[options[0], options[1], options[2], options[3]],
+                        contexts=[article, article, article, article, article], # this is not efficient but convenient
+                        endings=[options[0], options[1], options[2], options[3], ""],
                         label=truth))
         return examples
 
@@ -264,7 +268,7 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, test=False):
         features = torch.load(cached_features_file)
     else:
         logger.info("Creating features from dataset file at %s", args.data_dir)
-        label_list = processor.get_labels()
+        label_list = processor.get_labels(args)
         if evaluate:
             examples = processor.get_dev_examples(args.data_dir)
         elif test:
@@ -321,5 +325,5 @@ processors = {
 }
 
 MULTIPLE_CHOICE_TASKS_NUM_LABELS = {
-    "mutual", 4,
+    "mutual": 4,
 }
