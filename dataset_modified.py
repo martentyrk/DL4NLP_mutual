@@ -8,6 +8,7 @@ import glob
 import tqdm
 from typing import List
 import torch
+import random
 from transformers import PreTrainedTokenizer
 from torch.utils.data import TensorDataset
 
@@ -74,12 +75,12 @@ class DataProcessor(object):
 class MuTualProcessor(DataProcessor):
     """Processor for the MuTual data set."""
 
-    def get_train_examples(self, data_dir):
+    def get_train_examples(self, data_dir, args):
         """See base class."""
         logger.info("LOOKING AT {} train".format(data_dir))
         file = os.path.join(data_dir, 'train')
         file = self._read_txt(file)
-        return self._create_examples(file, 'train')
+        return self._create_examples(file, 'train', args)
 
     def get_dev_examples(self, data_dir):
         """See base class."""
@@ -110,8 +111,13 @@ class MuTualProcessor(DataProcessor):
         return lines
 
 
-    def _create_examples(self, lines, set_type):
+    def _create_examples(self, lines, set_type, args=None):
         """Creates examples for the training and dev sets."""
+        include_extra = True
+        if args:
+            if args.A_plus:
+                include_extra = True
+                
         examples = []
         for (_, data_raw) in enumerate(lines):
             id = "%s-%s" % (set_type, data_raw["id"])
@@ -119,13 +125,31 @@ class MuTualProcessor(DataProcessor):
 
             truth = str(ord(data_raw['answers']) - ord('A'))
             options = data_raw['options']
+            line_id = data_raw['id']
+            if include_extra:
+                a_plus_sample = ""
+                random_line_id = line_id
+                while line_id == random_line_id:
+                    random_line = random.choice(lines)
+                    random_truth = str(ord(random_line['answers']) - ord('A'))
+                    random_line_id = random_line['id']
 
-            examples.append(
-                SingleInput(
-                    example_id=id,
-                    contexts=[article, article, article, article], # this is not efficient but convenient
-                    endings=[options[0], options[1], options[2], options[3]],
-                    label=truth))
+                    a_plus_sample = random_line['options'][int(random_truth)]
+                    
+                examples.append(
+                    SingleInput(
+                        example_id=id,
+                        contexts=[article, article, article, article, article], # this is not efficient but convenient
+                        endings=[options[0], options[1], options[2], options[3], a_plus_sample],
+                        label=truth))
+                
+            else:
+                examples.append(
+                    SingleInput(
+                        example_id=id,
+                        contexts=[article, article, article, article], # this is not efficient but convenient
+                        endings=[options[0], options[1], options[2], options[3]],
+                        label=truth))
         return examples
 
 
@@ -219,7 +243,7 @@ def convert_examples_to_features(
 
     return features
 
-def load_and_cache_examples(args, task, tokenizer, evaluate=False, test=False):
+def load_and_cache_examples(args, tokenizer, evaluate=False, test=False):
     processor = MuTualProcessor()
     # Load data features from cache or dataset file
     if evaluate:
@@ -246,7 +270,7 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False, test=False):
         elif test:
             examples = processor.get_test_examples(args.data_dir)
         else:
-            examples = processor.get_train_examples(args.data_dir)
+            examples = processor.get_train_examples(args.data_dir, args)
         logger.info("Training number: %s", str(len(examples)))
         features = convert_examples_to_features(
             args.model_name,

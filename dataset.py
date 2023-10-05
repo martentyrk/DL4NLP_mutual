@@ -244,9 +244,9 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, test=False):
         logger.info("Creating features from dataset file at %s", args.data_dir)
         label_list = processor.get_labels()
         if evaluate:
-            examples = processor.get_dev_examples(args.data_dir, args)
+            examples = processor.get_dev_examples(args.data_dir)
         elif test:
-            examples = processor.get_test_examples(args.data_dir, args)
+            examples = processor.get_test_examples(args.data_dir)
         else:
             examples = processor.get_train_examples(args.data_dir, args)
         logger.info("Training number: %s", str(len(examples)))
