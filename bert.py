@@ -206,11 +206,11 @@ def fine_tune(args):
     else:
         print("please check model name!")
     
-    train_dataset, val_dataset = load_and_cache_examples(args, args.task_name, tokenizer)
+    train_dataset, val_dataset = load_and_cache_examples(args, tokenizer)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)    
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
     
-    test_dataset, _ = load_and_cache_examples(args, args.task_name, tokenizer, evaluate=True)
+    test_dataset, _ = load_and_cache_examples(args, tokenizer, evaluate=True)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
     # Create a PyTorch Lightning trainer with the generation callback

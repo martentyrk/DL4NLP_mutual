@@ -36,6 +36,8 @@ def parseArgs():
     parser.add_argument('--lr_scheduler', action='store_true', required=False, help="if use learning rate scheduler")                        
     parser.add_argument("--freeze_lm", action='store_true', required=False,
                         help="Freeze all layers except last")
+    parser.add_argument('--A_plus', action='store_true', required=False, 
+                        help="Use the bert baseline with an extra correct answer as a hard negative from some other context")
     args = parser.parse_args()
     return args
 

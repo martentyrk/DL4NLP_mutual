@@ -9,6 +9,7 @@ import tqdm
 from typing import List
 import torch
 from transformers import PreTrainedTokenizer
+import random
 from torch.utils.data import TensorDataset
 
 logger = logging.getLogger(__name__)
@@ -74,12 +75,12 @@ class DataProcessor(object):
 class MuTualProcessor(DataProcessor):
     """Processor for the MuTual data set."""
 
-    def get_train_examples(self, data_dir):
+    def get_train_examples(self, data_dir, args):
         """See base class."""
         logger.info("LOOKING AT {} train".format(data_dir))
         file = os.path.join(data_dir, 'train')
         file = self._read_txt(file)
-        return self._create_examples(file, 'train')
+        return self._create_examples(file, 'train', args)
 
     def get_dev_examples(self, data_dir):
         """See base class."""
@@ -110,8 +111,13 @@ class MuTualProcessor(DataProcessor):
         return lines
 
 
-    def _create_examples(self, lines, set_type):
+    def _create_examples(self, lines, set_type, args):
         """Creates examples for the training and dev sets."""
+        include_extra = True
+        if args:
+            if args.A_plus:
+                include_extra = True
+                
         examples = []
         for (_, data_raw) in enumerate(lines):
             id = "%s-%s" % (set_type, data_raw["id"])
@@ -119,6 +125,12 @@ class MuTualProcessor(DataProcessor):
 
             truth = str(ord(data_raw['answers']) - ord('A'))
             options = data_raw['options']
+            if include_extra:
+                a_plus_sample = ""
+                # while truth != a_plus_sample:
+                random_line = random.choice(lines)
+                print(random_line)
+                
 
             examples.append(
                 SingleInput(
@@ -209,7 +221,7 @@ def convert_examples_to_features(
 
     return features
 
-def load_and_cache_examples(args, task, tokenizer, evaluate=False, test=False):
+def load_and_cache_examples(args, tokenizer, evaluate=False, test=False):
     processor = MuTualProcessor()
     # Load data features from cache or dataset file
     if evaluate:
@@ -232,11 +244,11 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False, test=False):
         logger.info("Creating features from dataset file at %s", args.data_dir)
         label_list = processor.get_labels()
         if evaluate:
-            examples = processor.get_dev_examples(args.data_dir)
+            examples = processor.get_dev_examples(args.data_dir, args)
         elif test:
-            examples = processor.get_test_examples(args.data_dir)
+            examples = processor.get_test_examples(args.data_dir, args)
         else:
-            examples = processor.get_train_examples(args.data_dir)
+            examples = processor.get_train_examples(args.data_dir, args)
         logger.info("Training number: %s", str(len(examples)))
         features = convert_examples_to_features(
             examples,
