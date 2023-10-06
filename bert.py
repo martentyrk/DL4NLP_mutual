@@ -35,7 +35,7 @@ def compute_mrr(logits, labels, mrr, device):
     row = logits.shape[0]
     col = logits.shape[1]
     indexes = torch.arange(row).unsqueeze(1).expand(row, col).contiguous().view(-1).to(device)
-    preds_MRR = logits.view(-1)
+    preds_MRR = logits.contiguous().view(-1)
     targets = torch.rand((row,col))>1
     for i, j in enumerate(labels):
         targets[i,j] = True
@@ -54,10 +54,10 @@ def load_model(model_name, num_classes, freeze_lm=True):
     """
     ## Load pretrained model
     if model_name.lower() == 'bert':
-        model_config = BertConfig.from_pretrained("bert-base-uncased")
+        model_config = BertConfig.from_pretrained("bert-base-uncased", num_labels=num_classes)
         model = BertForMultipleChoice.from_pretrained("bert-base-uncased",config=model_config)
     elif model_name.lower() == 'tod_bert':
-        model_config = BertConfig.from_pretrained('TODBERT/TOD-BERT-JNT-V1')
+        model_config = BertConfig.from_pretrained('TODBERT/TOD-BERT-JNT-V1', num_labels=num_classes)
         model = BertForMultipleChoice.from_pretrained('TODBERT/TOD-BERT-JNT-V1',config=model_config)
     ## freeze all weights in LM to reduce computational complex
     if freeze_lm:
@@ -140,17 +140,20 @@ class Mutual_Module(pl.LightningModule):
     def validation_step(self, batch, verbose):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
         
-        print(labels)
+        
         outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
         _, logits = outputs[:2]
-        print(logits)
-            
+
+        if self.args.A_plus:
+            logits = logits[:, :-1]
         preds = logits.detach().cpu().numpy()
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
         
         #Compute recall@1 and recall@2
+        print(logits.shape)
+        print(labels.shape)
         recall1 = self.r1_test(logits, labels)
         recall2 = self.r2_test(logits, labels)
 
@@ -168,8 +171,11 @@ class Mutual_Module(pl.LightningModule):
         
        
         outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
-        _, logits = outputs[:2]   
-            
+        _, logits = outputs[:2]
+
+        if self.args.A_plus:
+            logits = logits[:, :-1]
+        
         preds = logits.detach().cpu().numpy()
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()

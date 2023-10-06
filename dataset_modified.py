@@ -117,7 +117,6 @@ class MuTualProcessor(DataProcessor):
 
     def _create_examples(self, lines, set_type, args=None):
         """Creates examples for the training and dev sets."""
-        include_extra = True
         if args:
             if args.A_plus:
                 include_extra = True
@@ -151,8 +150,8 @@ class MuTualProcessor(DataProcessor):
                 examples.append(
                     SingleInput(
                         example_id=id,
-                        contexts=[article, article, article, article], # this is not efficient but convenient
-                        endings=[options[0], options[1], options[2], options[3]],
+                        contexts=[article, article, article, article, article], # this is not efficient but convenient
+                        endings=[options[0], options[1], options[2], options[3], " "],
                         label=truth))
         return examples
 
