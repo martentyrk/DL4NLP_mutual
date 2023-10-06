@@ -82,19 +82,19 @@ class MuTualProcessor(DataProcessor):
         file = self._read_txt(file)
         return self._create_examples(file, 'train', args)
 
-    def get_dev_examples(self, data_dir):
+    def get_dev_examples(self, data_dir, args):
         """See base class."""
         logger.info("LOOKING AT {} dev".format(data_dir))
         file = os.path.join(data_dir, 'dev')
         file = self._read_txt(file)
-        return self._create_examples(file, 'dev')
+        return self._create_examples(file, 'dev', args)
 
-    def get_test_examples(self, data_dir):
+    def get_test_examples(self, data_dir, args):
         """See base class."""
         logger.info("LOOKING AT {} test".format(data_dir))
         file = os.path.join(data_dir, 'test')
         file = self._read_txt(file)
-        return self._create_examples(file, 'test')
+        return self._create_examples(file, 'test', args)
 
     def get_labels(self, args):
         """See base class."""
@@ -117,6 +117,7 @@ class MuTualProcessor(DataProcessor):
 
     def _create_examples(self, lines, set_type, args=None):
         """Creates examples for the training and dev sets."""
+        include_extra = False
         if args:
             if args.A_plus:
                 include_extra = True
@@ -150,8 +151,8 @@ class MuTualProcessor(DataProcessor):
                 examples.append(
                     SingleInput(
                         example_id=id,
-                        contexts=[article, article, article, article, article], # this is not efficient but convenient
-                        endings=[options[0], options[1], options[2], options[3], " "],
+                        contexts=[article, article, article, article], # this is not efficient but convenient
+                        endings=[options[0], options[1], options[2], options[3]],
                         label=truth))
         return examples
 
@@ -269,9 +270,9 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, test=False):
         logger.info("Creating features from dataset file at %s", args.data_dir)
         label_list = processor.get_labels(args)
         if evaluate:
-            examples = processor.get_dev_examples(args.data_dir)
+            examples = processor.get_dev_examples(args.data_dir, args)
         elif test:
-            examples = processor.get_test_examples(args.data_dir)
+            examples = processor.get_test_examples(args.data_dir, args)
         else:
             examples = processor.get_train_examples(args.data_dir, args)
         logger.info("Training number: %s", str(len(examples)))

@@ -152,8 +152,6 @@ class Mutual_Module(pl.LightningModule):
         acc = simple_accuracy(preds_pos_1, out_label_ids)
         
         #Compute recall@1 and recall@2
-        print(logits.shape)
-        print(labels.shape)
         recall1 = self.r1_test(logits, labels)
         recall2 = self.r2_test(logits, labels)
 
