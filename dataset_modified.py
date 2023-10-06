@@ -151,8 +151,8 @@ class MuTualProcessor(DataProcessor):
                 examples.append(
                     SingleInput(
                         example_id=id,
-                        contexts=[article, article, article, article, article], # this is not efficient but convenient
-                        endings=[options[0], options[1], options[2], options[3], ""],
+                        contexts=[article, article, article, article], # this is not efficient but convenient
+                        endings=[options[0], options[1], options[2], options[3]],
                         label=truth))
         return examples
 
