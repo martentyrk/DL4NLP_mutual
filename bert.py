@@ -19,7 +19,7 @@ import torch.utils.data as data
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
 from transformers import BertConfig, BertForMultipleChoice
-from dataset_modified import load_and_cache_examples
+from dataset import load_and_cache_examples
 import pytorch_lightning as pl
 from torchmetrics.retrieval import RetrievalRecall, RetrievalMRR
 from torchmetrics.classification import MulticlassRecall
@@ -88,6 +88,7 @@ class Mutual_Module(pl.LightningModule):
                                 args.freeze_lm)
         self.loss_module = nn.CrossEntropyLoss()
         self.args = args
+        
         self.r1 = MulticlassRecall(top_k=1, average='micro', num_classes=num_labels)
         self.r2 = MulticlassRecall(top_k=2, average='micro', num_classes=num_labels)
         
@@ -122,7 +123,10 @@ class Mutual_Module(pl.LightningModule):
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
-        
+        print(preds.shape, 'preds')
+        print(logits)
+        print(logits.shape)
+        print(labels.shape)
         #Compute recall@1 and recall@2
         recall1 = self.r1(logits, labels)
         recall2 = self.r2(logits, labels)
@@ -146,6 +150,7 @@ class Mutual_Module(pl.LightningModule):
 
         if self.args.A_plus:
             logits = logits[:, :-1]
+
         preds = logits.detach().cpu().numpy()
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()

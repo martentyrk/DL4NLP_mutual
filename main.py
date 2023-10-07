@@ -43,7 +43,6 @@ def parseArgs():
 
 def main():
   args = parseArgs()
-  print(args)
   model, result = fine_tune(args)
 
 if __name__ == "__main__":

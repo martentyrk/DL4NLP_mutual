@@ -8,8 +8,8 @@ import glob
 import tqdm
 from typing import List
 import torch
-from transformers import PreTrainedTokenizer
 import random
+from transformers import PreTrainedTokenizer
 from torch.utils.data import TensorDataset
 
 logger = logging.getLogger(__name__)
@@ -82,22 +82,26 @@ class MuTualProcessor(DataProcessor):
         file = self._read_txt(file)
         return self._create_examples(file, 'train', args)
 
-    def get_dev_examples(self, data_dir):
+    def get_dev_examples(self, data_dir, args):
         """See base class."""
         logger.info("LOOKING AT {} dev".format(data_dir))
         file = os.path.join(data_dir, 'dev')
         file = self._read_txt(file)
-        return self._create_examples(file, 'dev')
+        return self._create_examples(file, 'dev', args)
 
-    def get_test_examples(self, data_dir):
+    def get_test_examples(self, data_dir, args):
         """See base class."""
         logger.info("LOOKING AT {} test".format(data_dir))
         file = os.path.join(data_dir, 'test')
         file = self._read_txt(file)
-        return self._create_examples(file, 'test')
+        return self._create_examples(file, 'test', args)
 
-    def get_labels(self):
+    def get_labels(self, args):
         """See base class."""
+        if args:
+            if args.A_plus:
+                return ["0", "1", "2", "3", "4"]
+            
         return ["0", "1", "2", "3"]
 
     def _read_txt(self, input_dir):
@@ -111,9 +115,9 @@ class MuTualProcessor(DataProcessor):
         return lines
 
 
-    def _create_examples(self, lines, set_type, args):
+    def _create_examples(self, lines, set_type, args=None):
         """Creates examples for the training and dev sets."""
-        include_extra = True
+        include_extra = False
         if args:
             if args.A_plus:
                 include_extra = True
@@ -125,23 +129,36 @@ class MuTualProcessor(DataProcessor):
 
             truth = str(ord(data_raw['answers']) - ord('A'))
             options = data_raw['options']
+            line_id = data_raw['id']
             if include_extra:
                 a_plus_sample = ""
-                # while truth != a_plus_sample:
-                random_line = random.choice(lines)
-                print(random_line)
-                
+                random_line_id = line_id
+                while line_id == random_line_id:
+                    random_line = random.choice(lines)
+                    random_truth = str(ord(random_line['answers']) - ord('A'))
+                    random_line_id = random_line['id']
 
-            examples.append(
-                SingleInput(
-                    example_id=id,
-                    contexts=[article, article, article, article], # this is not efficient but convenient
-                    endings=[options[0], options[1], options[2], options[3]],
-                    label=truth))
+                    a_plus_sample = random_line['options'][int(random_truth)]
+                    
+                examples.append(
+                    SingleInput(
+                        example_id=id,
+                        contexts=[article, article, article, article, article], # this is not efficient but convenient
+                        endings=[options[0], options[1], options[2], options[3], a_plus_sample],
+                        label=truth))
+                
+            else:
+                examples.append(
+                    SingleInput(
+                        example_id=id,
+                        contexts=[article, article, article, article], # this is not efficient but convenient
+                        endings=[options[0], options[1], options[2], options[3]],
+                        label=truth))
         return examples
 
 
 def convert_examples_to_features(
+    model_name: str,
     examples: List[SingleInput],
     label_list: List[str],
     max_length: int,
@@ -162,13 +179,22 @@ def convert_examples_to_features(
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
         choices_features = []
         for ending_idx, (context, ending) in enumerate(zip(example.contexts, example.endings)):
-            text_a = context
-            # text_a = ""
-            # if example.question.find("_") != -1:
-            #     # this is for cloze question
-            #     text_b = example.question.replace("_", ending)
-            # else:
-            text_b = ending
+            if model_name.lower() == 'bert':
+                text_a = context
+                # text_a = ""
+                # if example.question.find("_") != -1:
+                #     # this is for cloze question
+                #     text_b = example.question.replace("_", ending)
+                # else:
+                text_b = ending
+            elif model_name.lower() == 'tod_bert':
+                ## append special tokens
+                text_a = f"[SYS]{context}"
+                text_b = f"[USR]{ending}"
+                
+            else:
+                print('Wrong model name:',model_name)
+                break
 
             inputs = tokenizer.encode_plus(
                 text_a,
@@ -242,15 +268,16 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, test=False):
         features = torch.load(cached_features_file)
     else:
         logger.info("Creating features from dataset file at %s", args.data_dir)
-        label_list = processor.get_labels()
+        label_list = processor.get_labels(args)
         if evaluate:
-            examples = processor.get_dev_examples(args.data_dir)
+            examples = processor.get_dev_examples(args.data_dir, args)
         elif test:
-            examples = processor.get_test_examples(args.data_dir)
+            examples = processor.get_test_examples(args.data_dir, args)
         else:
             examples = processor.get_train_examples(args.data_dir, args)
         logger.info("Training number: %s", str(len(examples)))
         features = convert_examples_to_features(
+            args.model_name,
             examples,
             label_list,
             args.max_seq_length,
@@ -298,5 +325,5 @@ processors = {
 }
 
 MULTIPLE_CHOICE_TASKS_NUM_LABELS = {
-    "mutual", 4,
+    "mutual": 4,
 }
