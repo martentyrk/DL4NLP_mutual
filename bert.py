@@ -11,11 +11,11 @@ import os
 from pytorch_lightning.loggers import CometLogger
 import numpy as np
 import torch
+import torch.nn.functional as F
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from dotenv import load_dotenv
 import torch.optim as optim
-import torch.nn.functional as F
 import torch.utils.data as data
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer
@@ -29,20 +29,23 @@ from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 load_dotenv()
 
+
 def simple_accuracy(preds, labels):
     return (preds == labels).mean()
+
 
 def compute_mrr(logits, labels, mrr, device):
     row = logits.shape[0]
     col = logits.shape[1]
     indexes = torch.arange(row).unsqueeze(1).expand(row, col).contiguous().view(-1).to(device)
     preds_MRR = logits.view(-1)
-    targets = torch.rand((row,col))>1
+    targets = torch.rand((row, col)) > 1
     for i, j in enumerate(labels):
-        targets[i,j] = True
+        targets[i, j] = True
     targets = targets.view(-1).to(device)
     mrr_score = mrr(preds_MRR, targets, indexes=indexes)
     return mrr_score
+
 
 def load_model(model_name, num_classes, freeze_lm=True):
     """
@@ -56,10 +59,10 @@ def load_model(model_name, num_classes, freeze_lm=True):
     ## Load pretrained model
     if model_name.lower() == 'bert':
         model_config = BertConfig.from_pretrained("bert-base-uncased", num_labels=num_classes)
-        model = BertForMultipleChoice.from_pretrained("bert-base-uncased",config=model_config)
+        model = BertForMultipleChoice.from_pretrained("bert-base-uncased", config=model_config)
     elif model_name.lower() == 'tod_bert':
         model_config = BertConfig.from_pretrained('TODBERT/TOD-BERT-JNT-V1', num_labels=num_classes)
-        model = BertForMultipleChoice.from_pretrained('TODBERT/TOD-BERT-JNT-V1',config=model_config)
+        model = BertForMultipleChoice.from_pretrained('TODBERT/TOD-BERT-JNT-V1', config=model_config)
     ## freeze all weights in LM to reduce computational complex
     if freeze_lm:
         for name, param in model.named_parameters():
@@ -70,10 +73,12 @@ def load_model(model_name, num_classes, freeze_lm=True):
 
     return model
 
+
 class Mutual_Module(pl.LightningModule):
     """
     Torch lightning training pipeline
     """
+
     def __init__(self, args):
         """
           Inputs:
@@ -93,26 +98,19 @@ class Mutual_Module(pl.LightningModule):
         self.r2 = MulticlassRecall(top_k=2, average='micro', num_classes=num_labels)
         self.mrr = RetrievalMRR()
 
-        self.margin = args.contrastive_margin
-        self.use_contrastive = args.use_contrastive
-        self.contrastive_weight = args.contrastive_weight
-        self.use_correlation = args.use_correlation
-        self.correlation_weight = args.correlation_weight
-        self.crossentropy_weight = args.crossentropy_weight
-
-
     def forward(self, instance):
         return self.model(torch.Tensor(instance))
 
-
-    #TODO: Add hparameter for learning rate
+    # TODO: Add hparameter for learning rate
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), 1e-5)    
-        
+        optimizer = optim.AdamW(self.parameters(), 1e-5)
+
         if self.args.lr_scheduler:
             print('TRAINING WITH LEARNING RATE SCHEDULER')
             scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
             return [optimizer], [scheduler]
+
+        print('TRAINING WITHOUT LEARNING RATE SCHEDULER')
         return optimizer
 
     def soft_maximum(self, logits, temperature=0.1):
@@ -136,31 +134,13 @@ class Mutual_Module(pl.LightningModule):
         max_negative_logits = self.soft_maximum(negative_logits, temperature=0.1)
 
         # Calculate loss
-        loss = F.leaky_relu(max_negative_logits - positive_logits + self.margin)
+        loss = F.leaky_relu(max_negative_logits - positive_logits + self.args.contrastive_margin)
 
         return loss.mean()
 
-    # Todo: correlation loss
     def correlation_loss(self, outputs):
         # Extract the logits for each option
-        # print('outputs shape: ', outputs)
         logits = outputs.logits
-        # print('shape of logits: ', logits.shape)
-
-        # mean_logits = logits.mean(dim=0)
-        # # Compute the centered logits
-        # centered_logits = logits - mean_logits
-        # # Compute the covariance matrix
-        # covariance = torch.mm(centered_logits, centered_logits.t())
-        # # Compute the correlation matrix
-        # correlation = covariance / torch.sqrt(
-        #     torch.mm(covariance.diag().view(-1, 1), covariance.diag().view(1, -1))
-        # )
-        # # Exclude the diagonal elements
-        # num_options = correlation.size(0)
-        # device = logits.device
-        # off_diagonal = correlation - torch.eye(num_options, device=device)
-        # loss = off_diagonal.pow(2).sum()
 
         losses = []
         device = logits.device
@@ -177,43 +157,41 @@ class Mutual_Module(pl.LightningModule):
 
         loss = sum(losses) / len(losses)
         return loss
-        
 
     def training_step(self, batch):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
-        
-            
-        outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
+
+        outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids,
+                             labels=labels)
         loss, logits = outputs[:2]
 
-        
         preds = logits.detach().cpu().numpy()
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
 
-        loss = self.crossentropy_weight * self.loss_module(logits, labels)
+        loss = self.args.crossentropy_weight * self.loss_module(logits, labels)
 
-        if self.use_contrastive or self.use_correlation:
-            if self.use_contrastive and self.use_correlation:
+        if self.args.use_contrastive or self.args.use_correlation:
+            if self.args.use_contrastive and self.args.use_correlation:
                 # print('USING BOTH')
-                loss += self.contrastive_weight * self.contrastive_loss(outputs,
-                                                                        labels) + self.correlation_weight * self.correlation_loss(
+                loss += self.args.contrastive_weight * self.contrastive_loss(outputs,
+                                                                        labels) + self.args.correlation_weight * self.correlation_loss(
                     outputs)
-            elif self.use_contrastive:
+            elif self.args.use_contrastive:
                 # print('USING CONTRASTIVE')
-                loss += self.contrastive_weight * self.contrastive_loss(outputs, labels)
+                loss += self.args.contrastive_weight * self.contrastive_loss(outputs, labels)
             else:
                 # print('USING CORRELATION')
-                loss += self.correlation_weight * self.correlation_loss(outputs)
-        
-        #Compute recall@1 and recall@2
+                loss += self.args.correlation_weight * self.correlation_loss(outputs)
+
+        # Compute recall@1 and recall@2
         recall1 = self.r1(logits, labels)
         recall2 = self.r2(logits, labels)
 
-        #Compute mrr score 
+        # Compute mrr score
         mrr_score = compute_mrr(logits, labels, self.mrr, self.args.device)
-        
+        #
         self.log('train_acc', acc, on_step=False, on_epoch=True)
         self.log('train_loss', loss)
         self.log('train_R@1', recall1)
@@ -223,61 +201,59 @@ class Mutual_Module(pl.LightningModule):
 
     def validation_step(self, batch, verbose):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
-        
-        
-        outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
+
+        outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids,
+                             labels=labels)
         _, logits = outputs[:2]
 
-        
         preds = logits.detach().cpu().numpy()
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
-        
-        #Compute recall@1 and recall@2
+
+        # Compute recall@1 and recall@2
         recall1 = self.r1(logits, labels)
         recall2 = self.r2(logits, labels)
-
-        #Compute MRR score
+        #
+        # # Compute MRR score
         mrr_score = compute_mrr(logits, labels, self.mrr, self.args.device)
-        
+        #
         self.log('val_acc', acc)
         self.log('val_R@1', recall1)
         self.log('val_R@2', recall2)
         self.log('val_MRR', mrr_score)
-        
+
     def test_step(self, batch, verbose):
         input_ids, attention_masks, token_type_ids, labels = self.unpack_batch(batch)
-        
-        
-       
-        outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids, labels=labels)
+
+        outputs = self.model(input_ids=input_ids, attention_mask=attention_masks, token_type_ids=token_type_ids,
+                             labels=labels)
         _, logits = outputs[:2]
 
-        
         preds = logits.detach().cpu().numpy()
         preds_pos_1 = np.argmax(preds, axis=1)
         out_label_ids = labels.detach().cpu().numpy()
         acc = simple_accuracy(preds_pos_1, out_label_ids)
-        
-        #Compute recall@1 and recall@2
+
+        # Compute recall@1 and recall@2
         recall1 = self.r1(logits, labels)
         recall2 = self.r2(logits, labels)
-
-        #Compute MRR score
+        #
+        # # Compute MRR score
         mrr_score = compute_mrr(logits, labels, self.mrr, self.args.device)
-        
+        #
         self.log('test_acc', acc)
         self.log('test_R@1', recall1)
         self.log('test_R@2', recall2)
         self.log('test_MRR', mrr_score)
-        
+
     def unpack_batch(self, batch):
         input_ids = batch[0]
         attention_masks = batch[1]
         token_type_ids = batch[2]
         labels = batch[3]
         return input_ids, attention_masks, token_type_ids, labels
+
 
 def fine_tune(args):
     """
@@ -292,21 +268,21 @@ def fine_tune(args):
         tokenizer = AutoTokenizer.from_pretrained("TODBERT/TOD-BERT-JNT-V1")
     else:
         print("please check model name!")
-    
+
     train_dataset, val_dataset = load_and_cache_examples(args, args.task_name, tokenizer)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)    
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
-    
+
     test_dataset, _ = load_and_cache_examples(args, args.task_name, tokenizer, evaluate=True)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
     # Create a PyTorch Lightning trainer with the generation callback
     comet_logger = CometLogger(
-        api_key=os.getenv('COMET_API_KEY'), ## change to your api key
+        api_key=os.getenv('COMET_API_KEY'),  ## change to your api key
         project_name="mutual",
         workspace=os.getenv('WORKSPACE'),
-        save_dir="checkpoint/", 
-        experiment_name=str(args.model_name + "_batch_size" + str(args.batch_size) + '_epochs'+str(args.max_epochs))
+        save_dir="checkpoint/",
+        experiment_name=str(args.model_name + "_batch_size" + str(args.batch_size) + '_epochs' + str(args.max_epochs))
     )
     trainer = pl.Trainer(default_root_dir=os.path.join(args.checkpoint_path, args.model_name),
                          accelerator=args.device,
@@ -316,21 +292,23 @@ def fine_tune(args):
                                     LearningRateMonitor("epoch")],
                          enable_progress_bar=True,
                          logger=comet_logger)
-    trainer.logger._log_graph = True         # If True, we plot the computation graph in tensorboard
+    trainer.logger._log_graph = True  # If True, we plot the computation graph in tensorboard
 
     # Check whether pretrained model exists. If yes, load it and skip training
     pretrained_filename = os.path.join(args.checkpoint_path, args.model_name + ".ckpt")
-    
+
     print(pretrained_filename, ' pretrained filename!!!!!!')
-    
+
     if os.path.isfile(pretrained_filename):
         print(f"Found pretrained model at {pretrained_filename}, loading...")
-        model = Mutual_Module.load_from_checkpoint(pretrained_filename) # Automatically loads the model with the saved hyperparameters
+        model = Mutual_Module.load_from_checkpoint(
+            pretrained_filename)  # Automatically loads the model with the saved hyperparameters
     else:
-        pl.seed_everything(args.seed) # To be reproducable
+        pl.seed_everything(args.seed)  # To be reproducable
         model = Mutual_Module(args)
         trainer.fit(model, train_loader, val_loader)
-        model = Mutual_Module.load_from_checkpoint(trainer.checkpoint_callback.best_model_path) # Load best checkpoint after training
+        model = Mutual_Module.load_from_checkpoint(
+            trainer.checkpoint_callback.best_model_path)  # Load best checkpoint after training
 
     # Test best model on validation and test set
     val_result = trainer.test(model, val_loader, verbose=False)
