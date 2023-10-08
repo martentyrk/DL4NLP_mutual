@@ -50,12 +50,15 @@ def parseArgs():
                         help="Weight for the correlation regularizer")
     parser.add_argument("--crossentropy_weight", default=0.33, type=float,
                         help="Weight for the correlation regularizer")
+    
+    #Args for data preprocessing
+    parser.add_argument('--A_plus', action='store_true', required=False, 
+                        help="Use the bert baseline with an extra correct answer as a hard negative from some other context")
     args = parser.parse_args()
     return args
 
 def main():
   args = parseArgs()
-  print(args)
   model, result = fine_tune(args)
 
 if __name__ == "__main__":
