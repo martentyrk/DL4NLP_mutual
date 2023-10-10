@@ -12,4 +12,4 @@
 
 source activate bert
 
-srun python main.py --max_epochs 50 --freeze_lm --lr_scheduler --data_dir '/home/scur0670/DL4NLP_mutual/data/mutual' --device 'cuda' --model_name 'bert'
+srun python main.py --max_epochs 50 --freeze_lm --data_dir 'insert path to mutual here' --device 'cuda' --model_name 'bert'
