@@ -12,7 +12,7 @@ def parseArgs():
     ## Required parameters
     parser.add_argument("--model_name", default="bert", type=str, required=False,
                         help="name of pre-trained-language model, use either: tod_bert, bert")
-    parser.add_argument("--data_dir", default='data/mutual/', type=str, required=False,
+    parser.add_argument("--data_dir", default='data_short/mutual/', type=str, required=False,
                         help="path of training data")
     parser.add_argument("--batch_size", default=64, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
@@ -33,18 +33,18 @@ def parseArgs():
                         help="Size of the validation split from training")
     parser.add_argument("--device", default='cpu', type=str, required=False,
                         help="Size of the validation split from training")
-    parser.add_argument('--lr_scheduler', action='store_true', required=False, help="if use learning rate scheduler")                        
+    parser.add_argument('--lr_scheduler', action='store_true', required=False, help="if use learning rate scheduler")
     parser.add_argument("--freeze_lm", action='store_true', required=False,
                         help="Freeze all layers except last")
 
     # args for regularizers
     parser.add_argument('--contrastive_margin', type=float, default=0.5,
                         help='Margin for the contrastive loss.')
-    parser.add_argument("--use_contrastive", default=True, type=bool,
+    parser.add_argument("--use_contrastive", action='store_true', required=False,
                         help="Use the contrastive learning-based regularizer")
     parser.add_argument("--contrastive_weight", default=0.33, type=float,
                         help="Weight for the contrastive regularizer")
-    parser.add_argument("--use_correlation", default=True, type=bool,
+    parser.add_argument("--use_correlation", action='store_true', required=False,
                         help="Use the correlation matrix-based regularizer")
     parser.add_argument("--correlation_weight", default=0.33, type=float,
                         help="Weight for the correlation regularizer")
