@@ -40,11 +40,11 @@ def parseArgs():
     # args for regularizers
     parser.add_argument('--contrastive_margin', type=float, default=0.5,
                         help='Margin for the contrastive loss.')
-    parser.add_argument("--use_contrastive", default=True, type=bool,
+    parser.add_argument("--use_contrastive", action='store_true', required=False,
                         help="Use the contrastive learning-based regularizer")
     parser.add_argument("--contrastive_weight", default=0.33, type=float,
                         help="Weight for the contrastive regularizer")
-    parser.add_argument("--use_correlation", default=True, type=bool,
+    parser.add_argument("--use_correlation", action='store_true', required=False,
                         help="Use the correlation matrix-based regularizer")
     parser.add_argument("--correlation_weight", default=0.33, type=float,
                         help="Weight for the correlation regularizer")
