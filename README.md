@@ -1,4 +1,4 @@
-# Exploring the effects of pre-training and regularizers on BERT for dialogue modelling
+# A study of methodologies to improve BERT performance on dialogue modelling
 
 ## Abstract 
 With the rise of transformer-based models in various conversational tasks, their limitations in reasoning abilities have become more apparent. This study aims to investigate how different design choices affect a model's reasoning capabilities. We conducted experiments using both BERT, a general text pre-trained model, and TOD-BERT, a model specifically designed for dialogues. One noteworthy enhancement we introduce is the incorporation of two loss functions into the traditional BERT model: a contrastive learning-based regularizer (CL) and a correlation matrix-based regularizer (COR). We explore the individual and combined effects of these enhancements on model performance. Our evaluation was conducted on the MuTual dataset, which is well-known for assessing logical reasoning skills. We aim to shed some light on the nuances of transformer models' performance in reasoning tasks and show the importance of design intricacies in enhancing their capabilities.
